@@ -16,8 +16,12 @@ import 'package:modula_lms/features/3_learner_space/data/my_courses_repository_i
 import 'package:modula_lms/features/3_learner_space/domain/get_my_courses_usecase.dart';
 import 'package:modula_lms/features/3_learner_space/domain/my_courses_repository.dart';
 import 'package:modula_lms/features/3_learner_space/presentation/bloc/my_courses_bloc.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/bloc/course_editor_bloc.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/bloc/course_management_bloc.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/bloc/lesson_editor_bloc.dart';
 import 'package:modula_lms/features/course_player/presentation/bloc/course_content_bloc.dart';
 import 'package:modula_lms/features/course_player/presentation/bloc/lesson_detail_bloc.dart';
+import 'package:modula_lms/features/course_player/presentation/bloc/quiz_bloc.dart';
 
 final sl = GetIt.instance;
 
@@ -56,4 +60,10 @@ void setupLocator() {
   // COURSE PLAYER
   sl.registerFactory(() => CourseContentBloc(apiClient: sl()));
   sl.registerFactory(() => LessonDetailBloc(apiClient: sl()));
+  sl.registerFactory(() => QuizBloc(apiClient: sl()));
+
+  // INSTRUCTOR SPACE
+  sl.registerFactory(() => CourseManagementBloc(apiClient: sl()));
+  sl.registerFactory(() => CourseEditorBloc(apiClient: sl()));
+  sl.registerFactory(() => LessonEditorBloc(apiClient: sl()));
 }

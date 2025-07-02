@@ -10,9 +10,13 @@ import 'package:modula_lms/features/2_marketplace/domain/entities/course_entity.
 import 'package:modula_lms/features/2_marketplace/presentation/pages/course_detail_page.dart';
 import 'package:modula_lms/features/2_marketplace/presentation/pages/course_list_page.dart';
 import 'package:modula_lms/features/3_learner_space/presentation/pages/my_courses_page.dart';
-import 'package:modula_lms/features/4_instructor_space/presentation/pages/instructor_dashboard_page.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/pages/course_editor_page.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/pages/create_course_page.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/pages/lesson_editor_page.dart';
 import 'package:modula_lms/features/course_player/presentation/pages/course_player_page.dart';
 import 'package:modula_lms/features/course_player/presentation/pages/lesson_viewer_page.dart';
+import 'package:modula_lms/features/course_player/presentation/pages/quiz_page.dart';
+import 'package:modula_lms/features/dashboard/presentation/pages/dashboard_page.dart';
 import 'package:modula_lms/features/shared/profile/presentation/pages/profile_page.dart';
 
 class AppRouter {
@@ -23,10 +27,9 @@ class AppRouter {
       initialLocation: '/marketplace',
       refreshListenable: GoRouterRefreshStream(authBloc.stream),
       routes: [
+        // ShellRoute pour les pages avec la barre de navigation inférieure.
         ShellRoute(
-          builder: (context, state, child) {
-            return ScaffoldWithNavBar(child: child);
-          },
+          builder: (context, state, child) => ScaffoldWithNavBar(child: child),
           routes: [
             GoRoute(
               path: '/marketplace',
@@ -47,7 +50,7 @@ class AppRouter {
             ),
             GoRoute(
               path: '/dashboard',
-              builder: (context, state) => const InstructorDashboardPage(),
+              builder: (context, state) => const DashboardPage(),
             ),
             GoRoute(
               path: '/profile',
@@ -55,6 +58,7 @@ class AppRouter {
             ),
           ],
         ),
+        // Routes en plein écran (sans la barre de navigation).
         GoRoute(
           path: '/course-player',
           builder: (context, state) {
@@ -62,12 +66,36 @@ class AppRouter {
             return CoursePlayerPage(course: course);
           },
         ),
-        // On ajoute la nouvelle route pour le lecteur de leçon.
         GoRoute(
           path: '/lesson-viewer/:id',
           builder: (context, state) {
             final lessonId = int.parse(state.pathParameters['id']!);
             return LessonViewerPage(lessonId: lessonId);
+          },
+        ),
+        GoRoute(
+          path: '/quiz/:id',
+          builder: (context, state) {
+            final lessonId = int.parse(state.pathParameters['id']!);
+            return QuizPage(lessonId: lessonId);
+          },
+        ),
+        GoRoute(
+          path: '/create-course',
+          builder: (context, state) => const CreateCoursePage(),
+        ),
+        GoRoute(
+          path: '/course-editor',
+          builder: (context, state) {
+            final course = state.extra as CourseEntity;
+            return CourseEditorPage(course: course);
+          },
+        ),
+        GoRoute(
+          path: '/lesson-editor/:id',
+          builder: (context, state) {
+            final lessonId = int.parse(state.pathParameters['id']!);
+            return LessonEditorPage(lessonId: lessonId);
           },
         ),
         GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
@@ -76,6 +104,7 @@ class AppRouter {
           builder: (context, state) => const RegisterPage(),
         ),
       ],
+      // Logique de redirection pour protéger les routes.
       redirect: (context, state) {
         final bool loggedIn = authBloc.state.user.isNotEmpty;
         final bool isLoggingIn =
@@ -85,11 +114,13 @@ class AppRouter {
           '/my-courses',
           '/dashboard',
           '/course-player',
-          // On protège aussi la route du lecteur de leçon
           '/lesson-viewer',
+          '/create-course',
+          '/course-editor',
+          '/lesson-editor',
+          '/quiz',
         ];
 
-        // On vérifie si la route commence par une des routes protégées.
         if (!loggedIn &&
             protectedRoutes.any((route) => state.uri.path.startsWith(route))) {
           return '/login';
@@ -103,6 +134,7 @@ class AppRouter {
   }
 }
 
+// Classe utilitaire pour que go_router puisse écouter un Stream.
 class GoRouterRefreshStream extends ChangeNotifier {
   GoRouterRefreshStream(Stream<dynamic> stream) {
     notifyListeners();

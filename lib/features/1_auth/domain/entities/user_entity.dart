@@ -1,20 +1,31 @@
 import 'package:equatable/equatable.dart';
 
-// Représente un utilisateur authentifié dans l'application.
+// On définit une énumération pour les rôles pour éviter les erreurs de frappe.
+enum UserRole { learner, instructor, unknown }
+
 class User extends Equatable {
   final String id;
   final String name;
   final String email;
+  final UserRole role; // On ajoute le rôle.
 
-  const User({required this.id, required this.name, required this.email});
+  const User({
+    required this.id,
+    required this.name,
+    required this.email,
+    required this.role,
+  });
 
-  // Un constructeur "vide" pour représenter un utilisateur non authentifié.
-  static const empty = User(id: '', name: '', email: '');
+  static const empty = User(
+    id: '',
+    name: '',
+    email: '',
+    role: UserRole.unknown,
+  );
 
-  // Permet de savoir facilement si l'objet User est vide ou non.
   bool get isEmpty => this == User.empty;
   bool get isNotEmpty => this != User.empty;
 
   @override
-  List<Object?> get props => [id, name, email];
+  List<Object?> get props => [id, name, email, role];
 }

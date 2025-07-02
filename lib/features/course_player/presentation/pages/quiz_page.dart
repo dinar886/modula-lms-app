@@ -1,0 +1,132 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:modula_lms/core/di/service_locator.dart';
+import 'package:modula_lms/features/course_player/presentation/bloc/quiz_bloc.dart';
+import 'package:modula_lms/features/course_player/presentation/bloc/quiz_event.dart';
+import 'package:modula_lms/features/course_player/presentation/bloc/quiz_state.dart';
+
+class QuizPage extends StatelessWidget {
+  final int lessonId;
+  const QuizPage({super.key, required this.lessonId});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (context) => sl<QuizBloc>()..add(FetchQuiz(lessonId)),
+      child: BlocBuilder<QuizBloc, QuizState>(
+        builder: (context, state) {
+          return Scaffold(
+            appBar: AppBar(
+              title: Text(
+                state.quiz.title.isNotEmpty
+                    ? state.quiz.title
+                    : 'Chargement du Quiz...',
+              ),
+            ),
+            body: _buildBody(context, state),
+            // Le bouton de soumission n'est visible que lorsque le quiz est chargé.
+            bottomNavigationBar: state.status == QuizStatus.loaded
+                ? Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: FilledButton(
+                      onPressed: () =>
+                          context.read<QuizBloc>().add(SubmitQuiz()),
+                      child: const Text('Soumettre le Quiz'),
+                    ),
+                  )
+                : null,
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, QuizState state) {
+    switch (state.status) {
+      case QuizStatus.loading:
+      case QuizStatus.initial:
+        return const Center(child: CircularProgressIndicator());
+
+      case QuizStatus.loaded:
+        return ListView.builder(
+          padding: const EdgeInsets.all(8),
+          itemCount: state.quiz.questions.length,
+          itemBuilder: (context, index) {
+            final question = state.quiz.questions[index];
+            return Card(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Question ${index + 1}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      question.text,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 16),
+                    // On utilise Column pour afficher les options de réponse.
+                    Column(
+                      children: question.answers.map((answer) {
+                        return RadioListTile<int>(
+                          title: Text(answer.text),
+                          value: answer.id,
+                          // La valeur du groupe est la réponse actuellement sélectionnée par l'utilisateur pour cette question.
+                          groupValue: state.userAnswers[question.id],
+                          onChanged: (value) {
+                            if (value != null) {
+                              context.read<QuizBloc>().add(
+                                AnswerSelected(
+                                  questionId: question.id,
+                                  answerId: value,
+                                ),
+                              );
+                            }
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+
+      case QuizStatus.submitted:
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'Quiz Terminé !',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Votre score :',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              Text(
+                '${state.score?.toStringAsFixed(0)} %',
+                style: Theme.of(context).textTheme.displayMedium?.copyWith(
+                  color: Theme.of(context).primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        );
+
+      case QuizStatus.failure:
+        return Center(
+          child: Text(state.error, style: const TextStyle(color: Colors.red)),
+        );
+    }
+  }
+}

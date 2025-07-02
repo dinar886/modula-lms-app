@@ -1,14 +1,16 @@
 import 'package:equatable/equatable.dart';
 
-enum LessonType { video, text, document, unknown }
+// On définit une énumération pour les types de leçons.
+// C'est plus sûr que d'utiliser des chaînes de caractères.
+enum LessonType { video, text, document, quiz, unknown }
 
 class LessonEntity extends Equatable {
   final int id;
   final String title;
   final LessonType lessonType;
-  // URL pour les vidéos ou documents
+  // URL pour les leçons de type vidéo ou document.
   final String? contentUrl;
-  // Contenu pour les leçons textuelles
+  // Contenu pour les leçons de type texte (supporte le Markdown).
   final String? contentText;
 
   const LessonEntity({
@@ -19,7 +21,7 @@ class LessonEntity extends Equatable {
     this.contentText,
   });
 
-  // Constructeur pour créer une entité à partir du JSON.
+  // Un constructeur "factory" pour créer une instance de LessonEntity à partir de données JSON.
   factory LessonEntity.fromJson(Map<String, dynamic> json) {
     return LessonEntity(
       id: json['id'],
@@ -30,6 +32,7 @@ class LessonEntity extends Equatable {
     );
   }
 
+  // Une méthode statique pour convertir la chaîne de caractères de l'API en une valeur de notre énumération.
   static LessonType fromString(String type) {
     switch (type) {
       case 'video':
@@ -38,11 +41,14 @@ class LessonEntity extends Equatable {
         return LessonType.text;
       case 'document':
         return LessonType.document;
+      case 'quiz':
+        return LessonType.quiz;
       default:
         return LessonType.unknown;
     }
   }
 
+  // Les propriétés utilisées par Equatable pour comparer deux instances.
   @override
   List<Object?> get props => [id, title, lessonType, contentUrl, contentText];
 }
