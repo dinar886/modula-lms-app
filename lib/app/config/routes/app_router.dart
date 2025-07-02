@@ -13,6 +13,7 @@ import 'package:modula_lms/features/3_learner_space/presentation/pages/my_course
 import 'package:modula_lms/features/4_instructor_space/presentation/pages/course_editor_page.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/pages/create_course_page.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/pages/lesson_editor_page.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/pages/quiz_editor_page.dart';
 import 'package:modula_lms/features/course_player/presentation/pages/course_player_page.dart';
 import 'package:modula_lms/features/course_player/presentation/pages/lesson_viewer_page.dart';
 import 'package:modula_lms/features/course_player/presentation/pages/quiz_page.dart';
@@ -98,6 +99,13 @@ class AppRouter {
             return LessonEditorPage(lessonId: lessonId);
           },
         ),
+        GoRoute(
+          path: '/quiz-editor/:id',
+          builder: (context, state) {
+            final lessonId = int.parse(state.pathParameters['id']!);
+            return QuizEditorPage(lessonId: lessonId);
+          },
+        ),
         GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
         GoRoute(
           path: '/register',
@@ -119,6 +127,7 @@ class AppRouter {
           '/course-editor',
           '/lesson-editor',
           '/quiz',
+          '/quiz-editor',
         ];
 
         if (!loggedIn &&

@@ -17,6 +17,9 @@ class CourseEditorPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // On fournit deux BLoCs à cette page :
+    // - CourseContentBloc pour afficher le contenu.
+    // - CourseEditorBloc pour gérer les actions d'édition.
     return MultiBlocProvider(
       providers: [
         BlocProvider(
@@ -26,8 +29,10 @@ class CourseEditorPage extends StatelessWidget {
         BlocProvider(create: (context) => sl<CourseEditorBloc>()),
       ],
       child: BlocListener<CourseEditorBloc, CourseEditorState>(
+        // Ce listener écoute les succès d'édition pour rafraîchir la liste.
         listener: (context, state) {
           if (state is CourseEditorSuccess) {
+            // On redemande le contenu du cours pour voir les changements.
             context.read<CourseContentBloc>().add(
               FetchCourseContent(course.id),
             );
@@ -44,8 +49,11 @@ class CourseEditorPage extends StatelessWidget {
             );
           }
         },
+        // On utilise un widget Builder pour obtenir un BuildContext qui est
+        // garanti d'être un descendant des providers ci-dessus.
         child: Builder(
           builder: (context) {
+            // Le 'context' utilisé à partir d'ici est maintenant correct.
             return Scaffold(
               appBar: AppBar(title: Text(course.title)),
               body: BlocBuilder<CourseContentBloc, CourseContentState>(
@@ -70,6 +78,7 @@ class CourseEditorPage extends StatelessWidget {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
+                            // On ajoute un menu pour les actions de la section
                             trailing: PopupMenuButton<String>(
                               onSelected: (value) {
                                 final courseEditorBloc = context
@@ -124,16 +133,19 @@ class CourseEditorPage extends StatelessWidget {
                                   _getIconForLessonType(lesson.lessonType),
                                 ),
                                 title: Text(lesson.title),
-                                // ** LA CORRECTION EST ICI **
-                                // On ajoute un onTap sur la tuile pour aller à l'éditeur de contenu.
-                                onTap: () =>
-                                    context.go('/lesson-editor/${lesson.id}'),
+                                onTap: () {
+                                  // On navigue vers l'éditeur approprié en fonction du type de leçon.
+                                  if (lesson.lessonType == LessonType.quiz) {
+                                    context.go('/quiz-editor/${lesson.id}');
+                                  } else {
+                                    context.go('/lesson-editor/${lesson.id}');
+                                  }
+                                },
                                 trailing: PopupMenuButton<String>(
                                   onSelected: (value) {
                                     final courseEditorBloc = context
                                         .read<CourseEditorBloc>();
                                     if (value == 'edit') {
-                                      // Ce bouton ouvre bien le dialogue pour modifier le nom.
                                       _showEditLessonDialog(
                                         context,
                                         lesson.id,
@@ -186,6 +198,7 @@ class CourseEditorPage extends StatelessWidget {
                 },
               ),
               floatingActionButton: FloatingActionButton.extended(
+                // On utilise maintenant le 'context' fourni par le Builder, qui est correct.
                 onPressed: () {
                   final courseEditorBloc = context.read<CourseEditorBloc>();
                   _showAddSectionDialog(context, course.id, courseEditorBloc);
@@ -265,6 +278,7 @@ class CourseEditorPage extends StatelessWidget {
                   DropdownMenuItem(value: 'text', child: Text('Texte')),
                   DropdownMenuItem(value: 'video', child: Text('Vidéo')),
                   DropdownMenuItem(value: 'document', child: Text('Document')),
+                  DropdownMenuItem(value: 'quiz', child: Text('Quiz')),
                 ],
                 onChanged: (value) => setState(() => selectedType = value!),
               ),
@@ -412,6 +426,8 @@ class CourseEditorPage extends StatelessWidget {
         return Icons.article_outlined;
       case LessonType.document:
         return Icons.picture_as_pdf_outlined;
+      case LessonType.quiz:
+        return Icons.quiz_outlined;
       default:
         return Icons.help_outline;
     }

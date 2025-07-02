@@ -19,6 +19,7 @@ import 'package:modula_lms/features/3_learner_space/presentation/bloc/my_courses
 import 'package:modula_lms/features/4_instructor_space/presentation/bloc/course_editor_bloc.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/bloc/course_management_bloc.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/bloc/lesson_editor_bloc.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/bloc/quiz_editor_bloc.dart';
 import 'package:modula_lms/features/course_player/presentation/bloc/course_content_bloc.dart';
 import 'package:modula_lms/features/course_player/presentation/bloc/lesson_detail_bloc.dart';
 import 'package:modula_lms/features/course_player/presentation/bloc/quiz_bloc.dart';
@@ -66,4 +67,5 @@ void setupLocator() {
   sl.registerFactory(() => CourseManagementBloc(apiClient: sl()));
   sl.registerFactory(() => CourseEditorBloc(apiClient: sl()));
   sl.registerFactory(() => LessonEditorBloc(apiClient: sl()));
+  sl.registerFactory(() => QuizEditorBloc(apiClient: sl()));
 }
