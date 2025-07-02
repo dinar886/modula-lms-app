@@ -1,25 +1,39 @@
-// lib/app/app.dart
-
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:modula_lms/app/config/routes/app_router.dart';
 import 'package:modula_lms/app/config/theme/app_theme.dart';
+import 'package:modula_lms/core/di/service_locator.dart';
+import 'package:modula_lms/features/1_auth/data/repositories/authentication_repository.dart';
+import 'package:modula_lms/features/1_auth/presentation/bloc/authentication_bloc.dart';
 
 class App extends StatelessWidget {
   const App({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // MaterialApp.router est utilisé pour intégrer un routeur comme go_router.
+    // On utilise RepositoryProvider pour fournir le AuthenticationRepository...
+    return RepositoryProvider.value(
+      value: sl<AuthenticationRepository>(),
+      // ...et BlocProvider pour fournir l'AuthenticationBloc à toute l'application.
+      child: BlocProvider(
+        create: (_) => sl<AuthenticationBloc>(),
+        child: const AppView(),
+      ),
+    );
+  }
+}
+
+// On sépare la vue pour pouvoir accéder facilement au contexte avec le Bloc.
+class AppView extends StatelessWidget {
+  const AppView({super.key});
+
+  @override
+  Widget build(BuildContext context) {
     return MaterialApp.router(
-      // Désactive la bannière de debug en haut à droite.
       debugShowCheckedModeBanner: false,
-
-      // Applique le thème global défini dans app_theme.dart.
       theme: AppTheme.lightTheme,
-      // Vous pouvez aussi définir un darkTheme: AppTheme.darkTheme,
-
-      // Fournit la configuration de la navigation à l'application.
-      routerConfig: AppRouter.router,
+      // On passe maintenant le router construit dynamiquement.
+      routerConfig: AppRouter.buildRouter(context),
     );
   }
 }
