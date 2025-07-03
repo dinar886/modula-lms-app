@@ -17,9 +17,6 @@ class CourseEditorPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // On fournit deux BLoCs à cette page :
-    // - CourseContentBloc pour afficher le contenu.
-    // - CourseEditorBloc pour gérer les actions d'édition.
     return MultiBlocProvider(
       providers: [
         BlocProvider(
@@ -29,10 +26,8 @@ class CourseEditorPage extends StatelessWidget {
         BlocProvider(create: (context) => sl<CourseEditorBloc>()),
       ],
       child: BlocListener<CourseEditorBloc, CourseEditorState>(
-        // Ce listener écoute les succès d'édition pour rafraîchir la liste.
         listener: (context, state) {
           if (state is CourseEditorSuccess) {
-            // On redemande le contenu du cours pour voir les changements.
             context.read<CourseContentBloc>().add(
               FetchCourseContent(course.id),
             );
@@ -49,11 +44,8 @@ class CourseEditorPage extends StatelessWidget {
             );
           }
         },
-        // On utilise un widget Builder pour obtenir un BuildContext qui est
-        // garanti d'être un descendant des providers ci-dessus.
         child: Builder(
           builder: (context) {
-            // Le 'context' utilisé à partir d'ici est maintenant correct.
             return Scaffold(
               appBar: AppBar(title: Text(course.title)),
               body: BlocBuilder<CourseContentBloc, CourseContentState>(
@@ -78,7 +70,6 @@ class CourseEditorPage extends StatelessWidget {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                            // On ajoute un menu pour les actions de la section
                             trailing: PopupMenuButton<String>(
                               onSelected: (value) {
                                 final courseEditorBloc = context
@@ -134,11 +125,12 @@ class CourseEditorPage extends StatelessWidget {
                                 ),
                                 title: Text(lesson.title),
                                 onTap: () {
-                                  // On navigue vers l'éditeur approprié en fonction du type de leçon.
+                                  // **CORRECTION** : Utilisation de `push` pour naviguer
+                                  // vers l'éditeur de leçon ou de quiz.
                                   if (lesson.lessonType == LessonType.quiz) {
-                                    context.go('/quiz-editor/${lesson.id}');
+                                    context.push('/quiz-editor/${lesson.id}');
                                   } else {
-                                    context.go('/lesson-editor/${lesson.id}');
+                                    context.push('/lesson-editor/${lesson.id}');
                                   }
                                 },
                                 trailing: PopupMenuButton<String>(
@@ -198,7 +190,6 @@ class CourseEditorPage extends StatelessWidget {
                 },
               ),
               floatingActionButton: FloatingActionButton.extended(
-                // On utilise maintenant le 'context' fourni par le Builder, qui est correct.
                 onPressed: () {
                   final courseEditorBloc = context.read<CourseEditorBloc>();
                   _showAddSectionDialog(context, course.id, courseEditorBloc);

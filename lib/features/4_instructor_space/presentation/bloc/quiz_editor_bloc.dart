@@ -1,3 +1,5 @@
+// lib/features/4_instructor_space/presentation/bloc/quiz_editor_bloc.dart
+import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:modula_lms/core/api/api_client.dart';
 import 'package:modula_lms/features/course_player/domain/entities/quiz_entity.dart';
@@ -9,13 +11,11 @@ class QuizEditorBloc extends Bloc<QuizEditorEvent, QuizEditorState> {
 
   QuizEditorBloc({required this.apiClient}) : super(const QuizEditorState()) {
     on<FetchQuizForEditing>(_onFetchQuizForEditing);
-    on<AddQuestion>(_onAddQuestion);
-    on<DeleteQuestion>(_onDeleteQuestion);
-    on<AddAnswer>(_onAddAnswer);
-    on<DeleteAnswer>(_onDeleteAnswer);
-    on<SetCorrectAnswer>(_onSetCorrectAnswer);
+    on<QuizChanged>(_onQuizChanged);
+    on<SaveQuizPressed>(_onSaveQuizPressed);
   }
 
+  // Récupère les données initiales du quiz depuis le serveur.
   Future<void> _onFetchQuizForEditing(
     FetchQuizForEditing event,
     Emitter<QuizEditorState> emit,
@@ -27,7 +27,13 @@ class QuizEditorBloc extends Bloc<QuizEditorEvent, QuizEditorState> {
         queryParameters: {'lesson_id': event.lessonId},
       );
       final quiz = QuizEntity.fromJson(response.data);
-      emit(state.copyWith(status: QuizEditorStatus.success, quiz: quiz));
+      emit(
+        state.copyWith(
+          status: QuizEditorStatus.loaded,
+          quiz: quiz,
+          isDirty: false,
+        ),
+      );
     } catch (e) {
       emit(
         state.copyWith(status: QuizEditorStatus.failure, error: e.toString()),
@@ -35,53 +41,72 @@ class QuizEditorBloc extends Bloc<QuizEditorEvent, QuizEditorState> {
     }
   }
 
-  Future<void> _onAddQuestion(
-    AddQuestion event,
-    Emitter<QuizEditorState> emit,
-  ) async {
-    await apiClient.post(
-      '/api/v1/add_question.php',
-      data: {'quiz_id': event.quizId, 'question_text': event.questionText},
+  // Met à jour l'état local du quiz à chaque modification dans l'UI.
+  void _onQuizChanged(QuizChanged event, Emitter<QuizEditorState> emit) {
+    emit(
+      state.copyWith(
+        quiz: event.updatedQuiz,
+        status: QuizEditorStatus.loaded,
+        isDirty: true,
+      ),
     );
   }
 
-  Future<void> _onDeleteQuestion(
-    DeleteQuestion event,
+  // Envoie l'intégralité du quiz au backend pour la sauvegarde.
+  Future<void> _onSaveQuizPressed(
+    SaveQuizPressed event,
     Emitter<QuizEditorState> emit,
   ) async {
-    await apiClient.post(
-      '/api/v1/delete_question.php',
-      data: {'question_id': event.questionId},
-    );
-  }
+    // --- NOUVEAU : Logique de validation ---
+    // On vérifie chaque question avant de tenter la sauvegarde.
+    for (var question in state.quiz.questions) {
+      // 1. Vérifier qu'il y a au moins 2 réponses par question.
+      if (question.answers.length < 2) {
+        emit(
+          state.copyWith(
+            status: QuizEditorStatus.failure,
+            error:
+                "Validation échouée : La question \"${question.text}\" doit avoir au moins 2 réponses.",
+          ),
+        );
+        // On repasse à l'état 'loaded' pour que l'utilisateur puisse corriger.
+        await Future.delayed(const Duration(milliseconds: 100));
+        emit(state.copyWith(status: QuizEditorStatus.loaded));
+        return; // On arrête le processus de sauvegarde.
+      }
 
-  Future<void> _onAddAnswer(
-    AddAnswer event,
-    Emitter<QuizEditorState> emit,
-  ) async {
-    await apiClient.post(
-      '/api/v1/add_answer.php',
-      data: {'question_id': event.questionId, 'answer_text': event.answerText},
-    );
-  }
+      // 2. Vérifier qu'au moins une réponse est marquée comme correcte.
+      if (!question.answers.any((answer) => answer.isCorrect)) {
+        emit(
+          state.copyWith(
+            status: QuizEditorStatus.failure,
+            error:
+                "Validation échouée : La question \"${question.text}\" doit avoir une bonne réponse de sélectionnée.",
+          ),
+        );
+        await Future.delayed(const Duration(milliseconds: 100));
+        emit(state.copyWith(status: QuizEditorStatus.loaded));
+        return; // On arrête le processus de sauvegarde.
+      }
+    }
+    // --- FIN de la logique de validation ---
 
-  Future<void> _onDeleteAnswer(
-    DeleteAnswer event,
-    Emitter<QuizEditorState> emit,
-  ) async {
-    await apiClient.post(
-      '/api/v1/delete_answer.php',
-      data: {'answer_id': event.answerId},
-    );
-  }
-
-  Future<void> _onSetCorrectAnswer(
-    SetCorrectAnswer event,
-    Emitter<QuizEditorState> emit,
-  ) async {
-    await apiClient.post(
-      '/api/v1/set_correct_answer.php',
-      data: {'question_id': event.questionId, 'answer_id': event.answerId},
-    );
+    emit(state.copyWith(status: QuizEditorStatus.saving));
+    try {
+      // Appel au nouveau script PHP qui gère la sauvegarde complète.
+      await apiClient.post('/api/v1/save_quiz.php', data: state.quiz.toJson());
+      emit(state.copyWith(status: QuizEditorStatus.success, isDirty: false));
+      await Future.delayed(const Duration(seconds: 1));
+      emit(state.copyWith(status: QuizEditorStatus.loaded));
+    } catch (e) {
+      emit(
+        state.copyWith(
+          status: QuizEditorStatus.failure,
+          error: "Erreur serveur: ${e.toString()}",
+        ),
+      );
+      await Future.delayed(const Duration(milliseconds: 100));
+      emit(state.copyWith(status: QuizEditorStatus.loaded));
+    }
   }
 }

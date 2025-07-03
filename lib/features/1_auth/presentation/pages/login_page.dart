@@ -38,7 +38,8 @@ class _LoginFormState extends State<LoginForm> {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthSuccess) {
-          // Si la connexion réussit, on retourne à la page précédente (le catalogue).
+          // Si la connexion réussit, on utilise `go` pour aller à la page principale.
+          // On ne veut pas que l'utilisateur puisse revenir à la page de connexion.
           context.go('/marketplace');
         }
         if (state is AuthFailure) {
@@ -91,8 +92,10 @@ class _LoginFormState extends State<LoginForm> {
               ),
               TextButton(
                 onPressed: () {
-                  // Navigue vers la page d'inscription.
-                  context.go('/register');
+                  // **CORRECTION** : Utilisation de `push` au lieu de `go`.
+                  // Cela permet d'ajouter la page d'inscription sur la pile de navigation
+                  // et donc de pouvoir revenir en arrière.
+                  context.push('/register');
                 },
                 child: const Text('Pas encore de compte ? S\'inscrire'),
               ),

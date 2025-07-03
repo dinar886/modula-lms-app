@@ -20,7 +20,9 @@ class CourseListPage extends StatelessWidget {
           actions: [
             IconButton(
               icon: const Icon(Icons.person_outline),
-              onPressed: () => context.go('/login'),
+              // **CORRECTION** : Utilisation de `push` pour ouvrir la page de profil/connexion.
+              // L'utilisateur pourra ainsi revenir au catalogue.
+              onPressed: () => context.push('/profile'),
             ),
           ],
         ),
@@ -34,12 +36,13 @@ class CourseListPage extends StatelessWidget {
                 itemCount: state.courses.length,
                 itemBuilder: (context, index) {
                   final course = state.courses[index];
-                  // On passe maintenant la logique de navigation via le paramètre onTap.
                   return CourseCard(
                     course: course,
                     onTap: () {
-                      // Cette navigation est spécifique à la page du catalogue.
-                      context.go('/marketplace/course/${course.id}');
+                      // **CORRECTION** : Utilisation de `push` au lieu de `go`.
+                      // Cela "pousse" la page de détail sur le catalogue,
+                      // permettant un retour en arrière naturel.
+                      context.push('/marketplace/course/${course.id}');
                     },
                   );
                 },

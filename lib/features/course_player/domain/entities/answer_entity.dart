@@ -1,3 +1,4 @@
+// lib/features/course_player/domain/entities/answer_entity.dart
 import 'package:equatable/equatable.dart';
 
 class AnswerEntity extends Equatable {
@@ -16,6 +17,20 @@ class AnswerEntity extends Equatable {
       id: json['id'],
       text: json['answer_text'],
       isCorrect: json['is_correct'],
+    );
+  }
+
+  // Ajout de la méthode toJson
+  Map<String, dynamic> toJson() {
+    return {'answer_text': text, 'is_correct': isCorrect};
+  }
+
+  // Ajout de la méthode copyWith
+  AnswerEntity copyWith({int? id, String? text, bool? isCorrect}) {
+    return AnswerEntity(
+      id: id ?? this.id,
+      text: text ?? this.text,
+      isCorrect: isCorrect ?? this.isCorrect,
     );
   }
 

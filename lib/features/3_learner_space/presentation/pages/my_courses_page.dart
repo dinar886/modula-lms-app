@@ -41,12 +41,13 @@ class MyCoursesPage extends StatelessWidget {
                 itemCount: state.courses.length,
                 itemBuilder: (context, index) {
                   final course = state.courses[index];
-                  // On passe la logique de navigation vers le lecteur de cours.
                   return CourseCard(
                     course: course,
                     onTap: () {
-                      // Cette navigation est spécifique à la page "Mes Cours".
-                      context.go('/course-player', extra: course);
+                      // **CORRECTION** : Utilisation de `push` au lieu de `go`.
+                      // Cela ouvre le lecteur de cours par-dessus la liste,
+                      // permettant de revenir en arrière.
+                      context.push('/course-player', extra: course);
                     },
                   );
                 },

@@ -1,4 +1,6 @@
+// lib/features/4_instructor_space/presentation/bloc/quiz_editor_event.dart
 import 'package:equatable/equatable.dart';
+import 'package:modula_lms/features/course_player/domain/entities/quiz_entity.dart';
 
 abstract class QuizEditorEvent extends Equatable {
   const QuizEditorEvent();
@@ -6,35 +8,17 @@ abstract class QuizEditorEvent extends Equatable {
   List<Object> get props => [];
 }
 
+// Événement pour charger le quiz initial depuis le serveur.
 class FetchQuizForEditing extends QuizEditorEvent {
   final int lessonId;
   const FetchQuizForEditing(this.lessonId);
 }
 
-class AddQuestion extends QuizEditorEvent {
-  final int quizId;
-  final String questionText;
-  const AddQuestion({required this.quizId, required this.questionText});
+// Événement déclenché à chaque modification locale du quiz dans l'UI.
+class QuizChanged extends QuizEditorEvent {
+  final QuizEntity updatedQuiz;
+  const QuizChanged(this.updatedQuiz);
 }
 
-class DeleteQuestion extends QuizEditorEvent {
-  final int questionId;
-  const DeleteQuestion(this.questionId);
-}
-
-class AddAnswer extends QuizEditorEvent {
-  final int questionId;
-  final String answerText;
-  const AddAnswer({required this.questionId, required this.answerText});
-}
-
-class DeleteAnswer extends QuizEditorEvent {
-  final int answerId;
-  const DeleteAnswer(this.answerId);
-}
-
-class SetCorrectAnswer extends QuizEditorEvent {
-  final int questionId;
-  final int answerId;
-  const SetCorrectAnswer({required this.questionId, required this.answerId});
-}
+// Événement déclenché par le clic sur le bouton "Enregistrer".
+class SaveQuizPressed extends QuizEditorEvent {}

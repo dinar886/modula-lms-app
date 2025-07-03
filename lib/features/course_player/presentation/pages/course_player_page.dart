@@ -14,7 +14,6 @@ class CoursePlayerPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // On fournit le BLoC pour récupérer le contenu du cours.
     return BlocProvider(
       create: (context) =>
           sl<CourseContentBloc>()..add(FetchCourseContent(course.id)),
@@ -22,34 +21,31 @@ class CoursePlayerPage extends StatelessWidget {
         appBar: AppBar(title: Text(course.title)),
         body: BlocBuilder<CourseContentBloc, CourseContentState>(
           builder: (context, state) {
-            // Affiche un indicateur de chargement.
             if (state is CourseContentLoading) {
               return const Center(child: CircularProgressIndicator());
             }
-            // Affiche la liste des sections et leçons une fois chargées.
             if (state is CourseContentLoaded) {
               return ListView.builder(
                 itemCount: state.sections.length,
                 itemBuilder: (context, index) {
                   final section = state.sections[index];
-                  // ExpansionTile est un widget qui peut être déroulé.
                   return ExpansionTile(
                     title: Text(
                       section.title,
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    // La première section est ouverte par défaut.
                     initiallyExpanded: index == 0,
                     children: section.lessons.map((lesson) {
                       return ListTile(
                         leading: Icon(_getIconForLessonType(lesson.lessonType)),
                         title: Text(lesson.title),
                         onTap: () {
-                          // Gère la navigation en fonction du type de leçon.
+                          // **CORRECTION** : Utilisation de `push` pour naviguer
+                          // vers le lecteur de leçon ou la page de quiz.
                           if (lesson.lessonType == LessonType.quiz) {
-                            context.go('/quiz/${lesson.id}');
+                            context.push('/quiz/${lesson.id}');
                           } else {
-                            context.go('/lesson-viewer/${lesson.id}');
+                            context.push('/lesson-viewer/${lesson.id}');
                           }
                         },
                       );
@@ -58,7 +54,6 @@ class CoursePlayerPage extends StatelessWidget {
                 },
               );
             }
-            // Affiche un message d'erreur.
             if (state is CourseContentError) {
               return Center(
                 child: Text(
@@ -67,7 +62,6 @@ class CoursePlayerPage extends StatelessWidget {
                 ),
               );
             }
-            // Par défaut, n'affiche rien.
             return const SizedBox.shrink();
           },
         ),
@@ -75,7 +69,6 @@ class CoursePlayerPage extends StatelessWidget {
     );
   }
 
-  // Fonction utilitaire pour choisir la bonne icône.
   IconData _getIconForLessonType(LessonType type) {
     switch (type) {
       case LessonType.video:

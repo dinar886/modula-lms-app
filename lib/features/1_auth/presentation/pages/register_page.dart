@@ -39,7 +39,8 @@ class _RegisterFormState extends State<RegisterForm> {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthSuccess) {
-          // Si l'inscription réussit, on va sur la page de connexion.
+          // L'utilisation de 'go' est correcte ici car après une inscription réussie,
+          // on redirige l'utilisateur et on ne veut pas qu'il revienne en arrière.
           context.go('/login');
         }
         if (state is AuthFailure) {
@@ -100,7 +101,9 @@ class _RegisterFormState extends State<RegisterForm> {
               ),
               TextButton(
                 onPressed: () {
-                  context.go('/login');
+                  // **CORRECTION** : Utilisation de `push` au lieu de `go`.
+                  // Cela permet de revenir en arrière depuis la page de connexion.
+                  context.push('/login');
                 },
                 child: const Text('Déjà un compte ? Se connecter'),
               ),
