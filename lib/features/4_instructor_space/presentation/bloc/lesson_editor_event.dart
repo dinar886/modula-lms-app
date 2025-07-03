@@ -1,5 +1,4 @@
 import 'package:equatable/equatable.dart';
-import 'package:modula_lms/features/course_player/domain/entities/lesson_entity.dart';
 
 abstract class LessonEditorEvent extends Equatable {
   const LessonEditorEvent();
@@ -13,15 +12,13 @@ class FetchLessonDetails extends LessonEditorEvent {
   const FetchLessonDetails(this.lessonId);
 }
 
-// Pour sauvegarder les changements.
-class SaveLessonContent extends LessonEditorEvent {
-  final int lessonId;
+// NOUVEAU : Événement pour signaler un changement dans le contenu
+class LessonContentChanged extends LessonEditorEvent {
   final String? contentUrl;
   final String? contentText;
 
-  const SaveLessonContent({
-    required this.lessonId,
-    this.contentUrl,
-    this.contentText,
-  });
+  const LessonContentChanged({this.contentUrl, this.contentText});
 }
+
+// Pour sauvegarder les changements.
+class SaveLessonContent extends LessonEditorEvent {}

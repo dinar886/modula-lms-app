@@ -17,18 +17,20 @@ class CreateCoursePage extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(title: const Text('Créer un nouveau cours')),
         body: BlocListener<CourseManagementBloc, CourseManagementState>(
+          // On écoute les changements de statut pour afficher des messages
+          listenWhen: (previous, current) => previous.status != current.status,
           listener: (context, state) {
-            if (state is CourseManagementSuccess) {
+            if (state.status == CourseManagementStatus.success) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('Cours créé avec succès !'),
                   backgroundColor: Colors.green,
                 ),
               );
-              // On retourne au tableau de bord après la création.
+              // On retourne à la page précédente (le tableau de bord)
               context.pop();
             }
-            if (state is CourseManagementFailure) {
+            if (state.status == CourseManagementStatus.failure) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(state.error),
@@ -56,6 +58,14 @@ class _CreateCourseFormState extends State<CreateCourseForm> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _priceController = TextEditingController();
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    _priceController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -86,25 +96,30 @@ class _CreateCourseFormState extends State<CreateCourseForm> {
               keyboardType: TextInputType.number,
               validator: (value) {
                 if (value!.isEmpty) return 'Veuillez entrer un prix';
-                if (double.tryParse(value) == null)
+                if (double.tryParse(value) == null) {
                   return 'Veuillez entrer un nombre valide';
+                }
                 return null;
               },
             ),
             const SizedBox(height: 24),
             BlocBuilder<CourseManagementBloc, CourseManagementState>(
               builder: (context, state) {
-                if (state is CourseManagementLoading) {
+                // On affiche un indicateur de chargement si le statut est 'loading'
+                if (state.status == CourseManagementStatus.loading) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 return FilledButton(
                   onPressed: () {
+                    // On vérifie si le formulaire est valide avant d'envoyer
                     if (_formKey.currentState!.validate()) {
+                      // On récupère l'ID de l'instructeur depuis le BLoC d'authentification
                       final instructorId = context
                           .read<AuthenticationBloc>()
                           .state
                           .user
                           .id;
+                      // On envoie l'événement corrigé
                       context.read<CourseManagementBloc>().add(
                         CreateCourseRequested(
                           title: _titleController.text,

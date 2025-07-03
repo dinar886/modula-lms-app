@@ -10,6 +10,9 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
   LessonEditorBloc({required this.apiClient})
     : super(const LessonEditorState()) {
     on<FetchLessonDetails>(_onFetchLessonDetails);
+    on<LessonContentChanged>(
+      _onLessonContentChanged,
+    ); // Enregistrement du nouvel événement
     on<SaveLessonContent>(_onSaveLessonContent);
   }
 
@@ -24,7 +27,14 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
         queryParameters: {'lesson_id': event.lessonId},
       );
       final lesson = LessonEntity.fromJson(response.data);
-      emit(state.copyWith(status: LessonEditorStatus.success, lesson: lesson));
+      // On réinitialise isDirty à false car on vient de charger les données fraîches
+      emit(
+        state.copyWith(
+          status: LessonEditorStatus.success,
+          lesson: lesson,
+          isDirty: false,
+        ),
+      );
     } catch (e) {
       emit(
         state.copyWith(status: LessonEditorStatus.failure, error: e.toString()),
@@ -32,22 +42,41 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
     }
   }
 
+  // NOUVEAU : Gestion du changement de contenu
+  void _onLessonContentChanged(
+    LessonContentChanged event,
+    Emitter<LessonEditorState> emit,
+  ) {
+    // On met à jour le contenu de la leçon dans l'état et on passe isDirty à true
+    final newLesson = state.lesson.copyWith(
+      contentUrl: event.contentUrl,
+      contentText: event.contentText,
+    );
+    emit(state.copyWith(lesson: newLesson, isDirty: true));
+  }
+
   Future<void> _onSaveLessonContent(
     SaveLessonContent event,
     Emitter<LessonEditorState> emit,
   ) async {
+    // On ne sauvegarde que si des changements ont été faits
+    if (!state.isDirty) return;
+
     emit(state.copyWith(status: LessonEditorStatus.saving));
     try {
       await apiClient.post(
         '/api/v1/update_lesson_content.php',
         data: {
-          'lesson_id': event.lessonId,
-          'content_url': event.contentUrl,
-          'content_text': event.contentText,
+          'lesson_id': state.lesson.id,
+          'content_url': state.lesson.contentUrl,
+          'content_text': state.lesson.contentText,
         },
       );
-      // On recharge les détails pour avoir la version la plus à jour.
-      add(FetchLessonDetails(event.lessonId));
+      // Après la sauvegarde, on passe le statut à succès et on réinitialise isDirty
+      emit(state.copyWith(status: LessonEditorStatus.success, isDirty: false));
+
+      // Optionnel: Recharger les détails pour être sûr d'avoir la version la plus à jour.
+      add(FetchLessonDetails(state.lesson.id));
     } catch (e) {
       emit(
         state.copyWith(status: LessonEditorStatus.failure, error: e.toString()),

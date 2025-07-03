@@ -1,18 +1,28 @@
 import 'package:equatable/equatable.dart';
 
-abstract class CourseManagementState extends Equatable {
-  const CourseManagementState();
-  @override
-  List<Object> get props => [];
-}
+// Enum pour gérer les différents états du BLoC
+enum CourseManagementStatus { initial, loading, success, failure }
 
-class CourseManagementInitial extends CourseManagementState {}
-
-class CourseManagementLoading extends CourseManagementState {}
-
-class CourseManagementSuccess extends CourseManagementState {}
-
-class CourseManagementFailure extends CourseManagementState {
+class CourseManagementState extends Equatable {
+  final CourseManagementStatus status;
   final String error;
-  const CourseManagementFailure(this.error);
+
+  const CourseManagementState({
+    this.status = CourseManagementStatus.initial,
+    this.error = '',
+  });
+
+  // Ajout de la méthode copyWith pour corriger les erreurs de compilation
+  CourseManagementState copyWith({
+    CourseManagementStatus? status,
+    String? error,
+  }) {
+    return CourseManagementState(
+      status: status ?? this.status,
+      error: error ?? this.error,
+    );
+  }
+
+  @override
+  List<Object> get props => [status, error];
 }

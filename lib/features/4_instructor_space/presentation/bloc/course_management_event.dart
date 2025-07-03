@@ -6,6 +6,7 @@ abstract class CourseManagementEvent extends Equatable {
   List<Object> get props => [];
 }
 
+// Un seul événement pour la création, pour garder ce BLoC simple.
 class CreateCourseRequested extends CourseManagementEvent {
   final String title;
   final String description;
@@ -18,4 +19,7 @@ class CreateCourseRequested extends CourseManagementEvent {
     required this.price,
     required this.instructorId,
   });
+
+  @override
+  List<Object> get props => [title, description, price, instructorId];
 }

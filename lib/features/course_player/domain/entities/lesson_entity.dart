@@ -32,6 +32,26 @@ class LessonEntity extends Equatable {
     );
   }
 
+  // **LA CORRECTION EST ICI**
+  // Ajout de la méthode `copyWith` pour permettre de créer une copie modifiée de l'objet.
+  // Cela résout l'erreur dans le lesson_editor_bloc.
+  LessonEntity copyWith({
+    int? id,
+    String? title,
+    LessonType? lessonType,
+    String? contentUrl,
+    String? contentText,
+  }) {
+    return LessonEntity(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      lessonType: lessonType ?? this.lessonType,
+      // Si la nouvelle valeur est explicitement 'null', on la prend, sinon on garde l'ancienne.
+      contentUrl: contentUrl,
+      contentText: contentText,
+    );
+  }
+
   // Une méthode statique pour convertir la chaîne de caractères de l'API en une valeur de notre énumération.
   static LessonType fromString(String type) {
     switch (type) {
