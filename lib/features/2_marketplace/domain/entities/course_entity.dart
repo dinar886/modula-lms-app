@@ -5,7 +5,7 @@ class CourseEntity extends Equatable {
   final String id;
   final String title;
   final String author;
-  final String? description; // On ajoute la description (optionnelle ici)
+  final String? description;
   final String imageUrl;
   final double price;
 
@@ -13,10 +13,29 @@ class CourseEntity extends Equatable {
     required this.id,
     required this.title,
     required this.author,
-    this.description, // Le champ est optionnel
+    this.description,
     required this.imageUrl,
     required this.price,
   });
+
+  // Ajout de la méthode copyWith
+  CourseEntity copyWith({
+    String? id,
+    String? title,
+    String? author,
+    String? description,
+    String? imageUrl,
+    double? price,
+  }) {
+    return CourseEntity(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      author: author ?? this.author,
+      description: description ?? this.description,
+      imageUrl: imageUrl ?? this.imageUrl,
+      price: price ?? this.price,
+    );
+  }
 
   @override
   List<Object?> get props => [id, title, author, description, imageUrl, price];

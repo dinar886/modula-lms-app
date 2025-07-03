@@ -11,9 +11,24 @@ import 'package:modula_lms/features/4_instructor_space/presentation/bloc/course_
 import 'package:modula_lms/features/4_instructor_space/presentation/bloc/course_editor_event.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/bloc/course_editor_state.dart';
 
-class CourseEditorPage extends StatelessWidget {
+// **CORRECTION** : Conversion en StatefulWidget
+class CourseEditorPage extends StatefulWidget {
   final CourseEntity course;
   const CourseEditorPage({super.key, required this.course});
+
+  @override
+  State<CourseEditorPage> createState() => _CourseEditorPageState();
+}
+
+class _CourseEditorPageState extends State<CourseEditorPage> {
+  // On garde une référence locale au cours pour pouvoir le mettre à jour
+  late CourseEntity _currentCourse;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentCourse = widget.course;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +36,8 @@ class CourseEditorPage extends StatelessWidget {
       providers: [
         BlocProvider(
           create: (context) =>
-              sl<CourseContentBloc>()..add(FetchCourseContent(course.id)),
+              sl<CourseContentBloc>()
+                ..add(FetchCourseContent(_currentCourse.id)),
         ),
         BlocProvider(create: (context) => sl<CourseEditorBloc>()),
       ],
@@ -29,7 +45,7 @@ class CourseEditorPage extends StatelessWidget {
         listener: (context, state) {
           if (state is CourseEditorSuccess) {
             context.read<CourseContentBloc>().add(
-              FetchCourseContent(course.id),
+              FetchCourseContent(_currentCourse.id),
             );
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -44,161 +60,185 @@ class CourseEditorPage extends StatelessWidget {
             );
           }
         },
-        child: Builder(
-          builder: (context) {
-            return Scaffold(
-              appBar: AppBar(title: Text(course.title)),
-              body: BlocBuilder<CourseContentBloc, CourseContentState>(
-                builder: (context, state) {
-                  if (state is CourseContentLoading) {
-                    return const Center(child: CircularProgressIndicator());
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(
+              _currentCourse.title,
+            ), // Utilise le titre de l'état local
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.edit_note),
+                tooltip: 'Modifier les informations du cours',
+                onPressed: () async {
+                  // Navigation vers la page d'édition
+                  final updatedCourse = await context.push<CourseEntity>(
+                    '/course-info-editor',
+                    extra: _currentCourse,
+                  );
+
+                  // **CORRECTION** : Si un cours mis à jour est retourné, on met à jour l'état local
+                  if (updatedCourse != null && mounted) {
+                    setState(() {
+                      _currentCourse = updatedCourse;
+                    });
+                    // On rafraîchit aussi le contenu (sections/leçons) si nécessaire
+                    context.read<CourseContentBloc>().add(
+                      FetchCourseContent(_currentCourse.id),
+                    );
                   }
-                  if (state is CourseContentLoaded) {
-                    return ListView.builder(
-                      itemCount: state.sections.length,
-                      itemBuilder: (context, index) {
-                        final section = state.sections[index];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          child: ExpansionTile(
-                            title: Text(
-                              section.title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
+                },
+              ),
+            ],
+          ),
+          body: BlocBuilder<CourseContentBloc, CourseContentState>(
+            builder: (context, state) {
+              if (state is CourseContentLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (state is CourseContentLoaded) {
+                return ListView.builder(
+                  itemCount: state.sections.length,
+                  itemBuilder: (context, index) {
+                    final section = state.sections[index];
+                    return Card(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      child: ExpansionTile(
+                        title: Text(
+                          section.title,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        trailing: PopupMenuButton<String>(
+                          onSelected: (value) {
+                            final courseEditorBloc = context
+                                .read<CourseEditorBloc>();
+                            if (value == 'edit') {
+                              _showEditSectionDialog(
+                                context,
+                                section.id,
+                                section.title,
+                                courseEditorBloc,
+                              );
+                            } else if (value == 'delete') {
+                              _showDeleteConfirmationDialog(
+                                context,
+                                'Supprimer la section ?',
+                                () {
+                                  courseEditorBloc.add(
+                                    DeleteSection(section.id),
+                                  );
+                                },
+                              );
+                            } else if (value == 'add_lesson') {
+                              _showAddLessonDialog(
+                                context,
+                                section.id,
+                                courseEditorBloc,
+                              );
+                            }
+                          },
+                          itemBuilder: (BuildContext context) =>
+                              <PopupMenuEntry<String>>[
+                                const PopupMenuItem<String>(
+                                  value: 'add_lesson',
+                                  child: Text('Ajouter une leçon'),
+                                ),
+                                const PopupMenuItem<String>(
+                                  value: 'edit',
+                                  child: Text('Modifier la section'),
+                                ),
+                                const PopupMenuItem<String>(
+                                  value: 'delete',
+                                  child: Text(
+                                    'Supprimer la section',
+                                    style: TextStyle(color: Colors.red),
+                                  ),
+                                ),
+                              ],
+                        ),
+                        children: section.lessons.map((lesson) {
+                          return ListTile(
+                            leading: Icon(
+                              _getIconForLessonType(lesson.lessonType),
                             ),
+                            title: Text(lesson.title),
+                            onTap: () {
+                              if (lesson.lessonType == LessonType.quiz) {
+                                context.push('/quiz-editor/${lesson.id}');
+                              } else {
+                                context.push('/lesson-editor/${lesson.id}');
+                              }
+                            },
                             trailing: PopupMenuButton<String>(
                               onSelected: (value) {
                                 final courseEditorBloc = context
                                     .read<CourseEditorBloc>();
                                 if (value == 'edit') {
-                                  _showEditSectionDialog(
+                                  _showEditLessonDialog(
                                     context,
-                                    section.id,
-                                    section.title,
+                                    lesson.id,
+                                    lesson.title,
                                     courseEditorBloc,
                                   );
                                 } else if (value == 'delete') {
                                   _showDeleteConfirmationDialog(
                                     context,
-                                    'Supprimer la section ?',
+                                    'Supprimer la leçon ?',
                                     () {
                                       courseEditorBloc.add(
-                                        DeleteSection(section.id),
+                                        DeleteLesson(lesson.id),
                                       );
                                     },
-                                  );
-                                } else if (value == 'add_lesson') {
-                                  _showAddLessonDialog(
-                                    context,
-                                    section.id,
-                                    courseEditorBloc,
                                   );
                                 }
                               },
                               itemBuilder: (BuildContext context) =>
                                   <PopupMenuEntry<String>>[
                                     const PopupMenuItem<String>(
-                                      value: 'add_lesson',
-                                      child: Text('Ajouter une leçon'),
-                                    ),
-                                    const PopupMenuItem<String>(
                                       value: 'edit',
-                                      child: Text('Modifier la section'),
+                                      child: Text('Modifier le nom'),
                                     ),
                                     const PopupMenuItem<String>(
                                       value: 'delete',
                                       child: Text(
-                                        'Supprimer la section',
+                                        'Supprimer',
                                         style: TextStyle(color: Colors.red),
                                       ),
                                     ),
                                   ],
+                              icon: const Icon(
+                                Icons.more_vert,
+                                size: 20,
+                                color: Colors.grey,
+                              ),
                             ),
-                            children: section.lessons.map((lesson) {
-                              return ListTile(
-                                leading: Icon(
-                                  _getIconForLessonType(lesson.lessonType),
-                                ),
-                                title: Text(lesson.title),
-                                onTap: () {
-                                  // **CORRECTION** : Utilisation de `push` pour naviguer
-                                  // vers l'éditeur de leçon ou de quiz.
-                                  if (lesson.lessonType == LessonType.quiz) {
-                                    context.push('/quiz-editor/${lesson.id}');
-                                  } else {
-                                    context.push('/lesson-editor/${lesson.id}');
-                                  }
-                                },
-                                trailing: PopupMenuButton<String>(
-                                  onSelected: (value) {
-                                    final courseEditorBloc = context
-                                        .read<CourseEditorBloc>();
-                                    if (value == 'edit') {
-                                      _showEditLessonDialog(
-                                        context,
-                                        lesson.id,
-                                        lesson.title,
-                                        courseEditorBloc,
-                                      );
-                                    } else if (value == 'delete') {
-                                      _showDeleteConfirmationDialog(
-                                        context,
-                                        'Supprimer la leçon ?',
-                                        () {
-                                          courseEditorBloc.add(
-                                            DeleteLesson(lesson.id),
-                                          );
-                                        },
-                                      );
-                                    }
-                                  },
-                                  itemBuilder: (BuildContext context) =>
-                                      <PopupMenuEntry<String>>[
-                                        const PopupMenuItem<String>(
-                                          value: 'edit',
-                                          child: Text('Modifier le nom'),
-                                        ),
-                                        const PopupMenuItem<String>(
-                                          value: 'delete',
-                                          child: Text(
-                                            'Supprimer',
-                                            style: TextStyle(color: Colors.red),
-                                          ),
-                                        ),
-                                      ],
-                                  icon: const Icon(
-                                    Icons.more_vert,
-                                    size: 20,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        );
-                      },
+                          );
+                        }).toList(),
+                      ),
                     );
-                  }
-                  if (state is CourseContentError) {
-                    return Center(child: Text(state.message));
-                  }
-                  return const SizedBox.shrink();
-                },
-              ),
-              floatingActionButton: FloatingActionButton.extended(
-                onPressed: () {
-                  final courseEditorBloc = context.read<CourseEditorBloc>();
-                  _showAddSectionDialog(context, course.id, courseEditorBloc);
-                },
-                label: const Text('Ajouter une Section'),
-                icon: const Icon(Icons.add),
-              ),
-            );
-          },
+                  },
+                );
+              }
+              if (state is CourseContentError) {
+                return Center(child: Text(state.message));
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: () {
+              final courseEditorBloc = context.read<CourseEditorBloc>();
+              _showAddSectionDialog(
+                context,
+                _currentCourse.id,
+                courseEditorBloc,
+              );
+            },
+            label: const Text('Ajouter une Section'),
+            icon: const Icon(Icons.add),
+          ),
         ),
       ),
     );

@@ -11,6 +11,7 @@ import 'package:modula_lms/features/2_marketplace/presentation/pages/course_deta
 import 'package:modula_lms/features/2_marketplace/presentation/pages/course_list_page.dart';
 import 'package:modula_lms/features/3_learner_space/presentation/pages/my_courses_page.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/pages/course_editor_page.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/pages/course_info_editor_page.dart'; // Ajout
 import 'package:modula_lms/features/4_instructor_space/presentation/pages/create_course_page.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/pages/lesson_editor_page.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/pages/quiz_editor_page.dart';
@@ -28,7 +29,7 @@ class AppRouter {
       initialLocation: '/marketplace',
       refreshListenable: GoRouterRefreshStream(authBloc.stream),
       routes: [
-        // ShellRoute pour les pages avec la barre de navigation inférieure.
+        // ... (autres routes inchangées)
         ShellRoute(
           builder: (context, state, child) => ScaffoldWithNavBar(child: child),
           routes: [
@@ -59,7 +60,6 @@ class AppRouter {
             ),
           ],
         ),
-        // Routes en plein écran (sans la barre de navigation).
         GoRoute(
           path: '/course-player',
           builder: (context, state) {
@@ -92,6 +92,14 @@ class AppRouter {
             return CourseEditorPage(course: course);
           },
         ),
+        // Nouvelle route pour l'éditeur d'informations
+        GoRoute(
+          path: '/course-info-editor',
+          builder: (context, state) {
+            final course = state.extra as CourseEntity;
+            return CourseInfoEditorPage(course: course);
+          },
+        ),
         GoRoute(
           path: '/lesson-editor/:id',
           builder: (context, state) {
@@ -112,7 +120,6 @@ class AppRouter {
           builder: (context, state) => const RegisterPage(),
         ),
       ],
-      // Logique de redirection pour protéger les routes.
       redirect: (context, state) {
         final bool loggedIn = authBloc.state.user.isNotEmpty;
         final bool isLoggingIn =
@@ -125,6 +132,7 @@ class AppRouter {
           '/lesson-viewer',
           '/create-course',
           '/course-editor',
+          '/course-info-editor', // Ajout de la nouvelle route protégée
           '/lesson-editor',
           '/quiz',
           '/quiz-editor',
@@ -143,7 +151,6 @@ class AppRouter {
   }
 }
 
-// Classe utilitaire pour que go_router puisse écouter un Stream.
 class GoRouterRefreshStream extends ChangeNotifier {
   GoRouterRefreshStream(Stream<dynamic> stream) {
     notifyListeners();
