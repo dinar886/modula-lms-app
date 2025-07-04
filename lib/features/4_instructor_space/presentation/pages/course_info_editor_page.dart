@@ -61,6 +61,7 @@ class CourseInfoEditorPage extends StatelessWidget {
                   backgroundColor: Colors.green,
                 ),
               );
+              // On retourne à la page précédente avec le cours mis à jour
               context.pop(state.course);
             } else if (state.status == CourseInfoEditorStatus.failure) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -179,7 +180,6 @@ class _ImageAndColorPicker extends StatelessWidget {
 
   const _ImageAndColorPicker({required this.state, required this.bloc});
 
-  /// Ouvre le sélecteur d'image de la galerie.
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(
@@ -191,7 +191,6 @@ class _ImageAndColorPicker extends StatelessWidget {
     }
   }
 
-  /// Ouvre la boîte de dialogue pour choisir une couleur.
   void _pickColor(BuildContext context) {
     Color pickerColor = state.newColor ?? Colors.blue;
     showDialog(
@@ -229,7 +228,6 @@ class _ImageAndColorPicker extends StatelessWidget {
     if (state.newImageFile != null) {
       imageProvider = FileImage(File(state.newImageFile!.path));
     } else if (state.course.imageUrl.isNotEmpty) {
-      // **LA CORRECTION EST ICI** : On enlève le paramètre "key" qui n'existe pas.
       imageProvider = NetworkImage(state.course.imageUrl);
     }
 

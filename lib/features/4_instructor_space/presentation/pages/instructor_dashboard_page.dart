@@ -14,10 +14,11 @@ class InstructorDashboardPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final instructorId = context.read<AuthenticationBloc>().state.user.id;
+    final myCoursesBloc = sl<MyCoursesBloc>()
+      ..add(FetchMyCourses(instructorId));
 
-    return BlocProvider(
-      create: (context) =>
-          sl<MyCoursesBloc>()..add(FetchMyCourses(instructorId)),
+    return BlocProvider.value(
+      value: myCoursesBloc,
       child: Scaffold(
         appBar: AppBar(title: const Text('Tableau de Bord Instructeur')),
         body: BlocBuilder<MyCoursesBloc, MyCoursesState>(
@@ -34,18 +35,31 @@ class InstructorDashboardPage extends StatelessWidget {
                   ),
                 );
               }
-              return ListView.builder(
-                itemCount: state.courses.length,
-                itemBuilder: (context, index) {
-                  final course = state.courses[index];
-                  return CourseCard(
-                    course: course,
-                    onTap: () {
-                      // **CORRECTION** : Utilisation de `push` pour aller à l'éditeur.
-                      context.push('/course-editor', extra: course);
-                    },
-                  );
+              // Ajout du RefreshIndicator ici
+              return RefreshIndicator(
+                onRefresh: () async {
+                  myCoursesBloc.add(FetchMyCourses(instructorId));
                 },
+                child: ListView.builder(
+                  itemCount: state.courses.length,
+                  itemBuilder: (context, index) {
+                    final course = state.courses[index];
+                    return CourseCard(
+                      course: course,
+                      onTap: () async {
+                        // On attend un résultat après la navigation
+                        final result = await context.push(
+                          '/course-editor',
+                          extra: course,
+                        );
+                        // Si l'éditeur a renvoyé 'true', on rafraîchit
+                        if (result == true) {
+                          myCoursesBloc.add(FetchMyCourses(instructorId));
+                        }
+                      },
+                    );
+                  },
+                ),
               );
             }
             if (state is MyCoursesError) {
@@ -60,9 +74,13 @@ class InstructorDashboardPage extends StatelessWidget {
           },
         ),
         floatingActionButton: FloatingActionButton.extended(
-          onPressed: () {
-            // **CORRECTION** : Utilisation de `push` pour aller à la page de création.
-            context.push('/create-course');
+          onPressed: () async {
+            // On attend un résultat après la navigation
+            final result = await context.push('/create-course');
+            // Si la page de création a renvoyé 'true', on rafraîchit
+            if (result == true) {
+              myCoursesBloc.add(FetchMyCourses(instructorId));
+            }
           },
           icon: const Icon(Icons.add),
           label: const Text('Créer un cours'),

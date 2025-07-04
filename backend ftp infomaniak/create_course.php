@@ -1,6 +1,7 @@
 <?php
 // Fichier : /api/v1/create_course.php
 
+// Headers pour la réponse JSON et les autorisations CORS
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST");
@@ -8,35 +9,35 @@ header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers
 
 require_once 'config.php';
 
-$data = json_decode(file_get_contents("php://input"));
+// Connexion à la base de données
+$conn = new mysqli($servername, $username, $password, $dbname);
+if ($conn->connect_error) {
+    http_response_code(500);
+    echo json_encode(["message" => "Erreur de connexion à la base de données: " . $conn->connect_error]);
+    exit();
+}
+$conn->set_charset("utf8");
 
-// On vérifie que toutes les données nécessaires sont présentes.
+// **MODIFIÉ** : On lit les données depuis `$_POST` car on utilise `multipart/form-data`.
 if (
-    !empty($data->title) &&
-    !empty($data->description) &&
-    isset($data->price) &&
-    !empty($data->instructor_id)
+    !empty($_POST['title']) &&
+    isset($_POST['description']) &&
+    isset($_POST['price']) &&
+    !empty($_POST['instructor_id'])
 ) {
-    $conn = new mysqli($servername, $username, $password, $dbname);
-
-    if ($conn->connect_error) {
-        http_response_code(500);
-        echo json_encode(["message" => "Erreur de connexion à la base de données."]);
-        exit();
-    }
-
-    // On démarre une transaction pour s'assurer que toutes les requêtes réussissent
+    // On commence une transaction pour garantir la cohérence des données.
     $conn->begin_transaction();
 
     try {
-        // Sécurise les données reçues.
-        $title = $conn->real_escape_string($data->title);
-        $description = $conn->real_escape_string($data->description);
-        $price = (float)$data->price;
-        $instructor_id = (int)$data->instructor_id;
+        // Sécurisation des données
+        $title = $conn->real_escape_string($_POST['title']);
+        $description = $conn->real_escape_string($_POST['description']);
+        $price = (float)$_POST['price'];
+        $instructor_id = (int)$_POST['instructor_id'];
+        // On récupère la couleur (ou une couleur par défaut si non fournie).
+        $color = !empty($_POST['color']) ? $conn->real_escape_string($_POST['color']) : '#005A9C';
 
-        // **LA CORRECTION EST ICI**
-        // 1. On récupère le nom de l'instructeur depuis la table 'users'.
+        // Récupération du nom de l'auteur
         $author_name = '';
         $user_sql = "SELECT name FROM users WHERE id = ?";
         $user_stmt = $conn->prepare($user_sql);
@@ -49,46 +50,66 @@ if (
         $user_stmt->close();
 
         if (empty($author_name)) {
-            // Si on ne trouve pas l'utilisateur, on arrête tout.
             throw new Exception("Instructeur non trouvé.");
         }
 
-        // URL de l'image par défaut.
-        $default_image_url = "https://placehold.co/600x400/005A9C/FFFFFF/png?text=" . urlencode($title);
+        $image_url = '';
 
-        // 2. Prépare la requête d'insertion en ajoutant le nom de l'auteur.
-        $sql = "INSERT INTO courses (title, description, price, image_url, author) VALUES (?, ?, ?, ?, ?)";
+        // **NOUVEAU** : Gestion de l'upload de l'image
+        if (isset($_FILES['image']) && $_FILES['image']['error'] == UPLOAD_ERR_OK) {
+            $upload_dir = 'uploads/';
+            if (!is_dir($upload_dir)) {
+                mkdir($upload_dir, 0755, true);
+            }
+            $file_info = pathinfo($_FILES['image']['name']);
+            $file_ext = strtolower($file_info['extension']);
+            $unique_filename = uniqid('course_', true) . '.' . $file_ext;
+            $target_file = $upload_dir . $unique_filename;
+
+            if (move_uploaded_file($_FILES['image']['tmp_name'], $target_file)) {
+                // On construit l'URL complète de l'image
+                $image_url = "https://modula-lms.com/api/v1/" . $target_file;
+            } else {
+                throw new Exception("Erreur lors du déplacement du fichier uploadé.");
+            }
+        } else {
+            // Si aucune image n'est uploadée, on crée une image placeholder.
+            $encoded_title = urlencode($title);
+            $hex_color = ltrim($color, '#');
+            $image_url = "https://placehold.co/600x400/{$hex_color}/FFFFFF/png?text={$encoded_title}";
+        }
+
+        // **MODIFIÉ** : On insère le cours avec l'image et la couleur.
+        $sql = "INSERT INTO courses (title, description, price, image_url, color, author) VALUES (?, ?, ?, ?, ?, ?)";
         $stmt = $conn->prepare($sql);
-        // 'ssdss' correspond aux types : string, string, double, string, string
-        $stmt->bind_param("ssdss", $title, $description, $price, $default_image_url, $author_name);
+        $stmt->bind_param("ssdsss", $title, $description, $price, $image_url, $color, $author_name);
         $stmt->execute();
-        $course_id = $conn->insert_id; // Récupère l'ID du cours créé.
+        $course_id = $conn->insert_id;
         $stmt->close();
         
-        // 3. On lie l'instructeur au cours dans la table de liaison.
+        // On lie l'instructeur au cours.
         $link_sql = "INSERT INTO user_courses (user_id, course_id) VALUES (?, ?)";
         $link_stmt = $conn->prepare($link_sql);
         $link_stmt->bind_param("ii", $instructor_id, $course_id);
         $link_stmt->execute();
         $link_stmt->close();
         
-        // Si tout a réussi, on valide la transaction.
+        // On valide la transaction.
         $conn->commit();
         
-        http_response_code(201); // Created
-        echo json_encode(["message" => "Cours créé et assigné avec succès.", "course_id" => $course_id]);
+        http_response_code(201);
+        echo json_encode(["message" => "Cours créé avec succès.", "course_id" => $course_id]);
 
     } catch (Exception $e) {
-        // En cas d'erreur, on annule la transaction.
         $conn->rollback();
         http_response_code(500);
         echo json_encode(["message" => "Erreur lors de la création du cours.", "error" => $e->getMessage()]);
-    } finally {
-        $conn->close();
     }
 
 } else {
     http_response_code(400);
-    echo json_encode(["message" => "Données incomplètes pour la création du cours."]);
+    echo json_encode(["message" => "Données incomplètes.", "received_post" => $_POST, "received_files" => $_FILES]);
 }
+
+$conn->close();
 ?>

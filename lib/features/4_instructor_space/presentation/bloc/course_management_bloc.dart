@@ -1,3 +1,4 @@
+// lib/features/4_instructor_space/presentation/bloc/course_management_bloc.dart
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:modula_lms/core/api/api_client.dart';
 import 'course_management_event.dart';
@@ -16,27 +17,34 @@ class CourseManagementBloc
     CreateCourseRequested event,
     Emitter<CourseManagementState> emit,
   ) async {
-    // On passe à l'état de chargement en utilisant copyWith
     emit(state.copyWith(status: CourseManagementStatus.loading));
     try {
-      // On appelle l'API avec les bonnes données
-      await apiClient.post(
+      // **MODIFIÉ** : On prépare les données pour l'envoi multipart.
+      final data = {
+        'title': event.title,
+        'description': event.description,
+        'price': event.price,
+        'instructor_id': event.instructorId,
+        // On envoie la couleur si elle est définie, au format HEX.
+        if (event.color != null)
+          'color':
+              '#${event.color!.value.toRadixString(16).substring(2).toUpperCase()}',
+      };
+
+      // **MODIFIÉ** : On utilise la méthode `postMultipart` de notre ApiClient.
+      // Elle est capable de gérer à la fois les champs de texte et l'upload de fichier.
+      await apiClient.postMultipart(
         '/api/v1/create_course.php',
-        data: {
-          'title': event.title,
-          'description': event.description,
-          'price': event.price,
-          'instructor_id': event.instructorId,
-        },
+        data: data,
+        imageFile: event.imageFile,
       );
-      // On passe à l'état de succès
+
       emit(state.copyWith(status: CourseManagementStatus.success));
     } catch (e) {
-      // En cas d'erreur, on passe à l'état d'échec
       emit(
         state.copyWith(
           status: CourseManagementStatus.failure,
-          error: e.toString(),
+          error: "Erreur lors de la création : ${e.toString()}",
         ),
       );
     }
