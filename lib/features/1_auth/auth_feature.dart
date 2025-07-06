@@ -69,7 +69,7 @@ class User extends Equatable {
 class AuthenticationRepository {
   final ApiClient apiClient;
   final FlutterSecureStorage secureStorage;
-  final _controller = StreamController<User>();
+  final _controller = StreamController<User>.broadcast();
 
   AuthenticationRepository({
     required this.apiClient,
@@ -152,6 +152,7 @@ class AuthenticationRepository {
     }
   }
 
+  /// **MÉTHODE `updateUser` CORRIGÉE**
   /// Met à jour les informations de l'utilisateur, y compris la photo de profil.
   Future<void> updateUser({
     required String userId,
@@ -161,12 +162,13 @@ class AuthenticationRepository {
   }) async {
     try {
       // **CORRECTION APPLIQUÉE ICI**
-      // On utilise maintenant le paramètre nommé `path:` pour passer l'URL,
-      // conformément à la définition de la méthode dans ApiClient.
+      // On utilise maintenant le paramètre `file` et on spécifie `fileKey`.
+      // La clé 'profile_image' doit correspondre à ce que le script `update_profile.php` attend.
       final response = await apiClient.postMultipart(
         path: '/api/v1/update_profile.php',
         data: {'user_id': userId, 'name': name, 'email': email},
-        imageFile: imageFile,
+        file: imageFile,
+        fileKey: 'profile_image',
       );
 
       final userData = response.data['user'];
@@ -405,6 +407,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     emit(AuthLoading());
     try {
+      // **CORRECTION APPLIQUÉE ICI**
+      // On passe le paramètre `file` et non `imageFile`.
       await _authenticationRepository.updateUser(
         userId: event.userId,
         name: event.name,

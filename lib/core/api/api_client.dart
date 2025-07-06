@@ -1,6 +1,8 @@
 // lib/core/api/api_client.dart
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+// **CORRECTION** : Remplacement du point par un deux-points dans le chemin d'importation.
 import 'package:image_picker/image_picker.dart';
 
 /// Un client HTTP centralisé pour interagir avec l'API backend de Modula LMS.
@@ -23,9 +25,9 @@ class ApiClient {
         BaseOptions(
           baseUrl: _baseUrl,
           // Temps d'attente maximum pour établir une connexion.
-          connectTimeout: const Duration(seconds: 10),
+          connectTimeout: const Duration(seconds: 15),
           // Temps d'attente maximum pour recevoir une réponse.
-          receiveTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 15),
           headers: {
             // On indique qu'on accepte les réponses au format JSON par défaut.
             'Accept': 'application/json',
@@ -49,7 +51,24 @@ class ApiClient {
           // 'handler.next(options)' continue le processus d'envoi de la requête.
           return handler.next(options);
         },
-        // Vous pouvez également gérer les réponses ('onResponse') et les erreurs ('onError') ici.
+        // En mode debug, on ajoute un intercepteur de logs pour voir les requêtes.
+        // C'est extrêmement utile pour déboguer les problèmes d'API.
+        onResponse: (response, handler) {
+          if (kDebugMode) {
+            print(
+              '[DIO] Response [${response.statusCode}] => Path: ${response.requestOptions.path}',
+            );
+          }
+          return handler.next(response);
+        },
+        onError: (DioException e, handler) {
+          if (kDebugMode) {
+            print(
+              '[DIO] Error [${e.response?.statusCode}] => Path: ${e.requestOptions.path}',
+            );
+          }
+          return handler.next(e);
+        },
       ),
     );
   }
@@ -63,8 +82,7 @@ class ApiClient {
       return _dio.get(path, queryParameters: queryParameters);
     } on DioException catch (e) {
       // En cas d'erreur, on propage une exception plus lisible.
-      print("ApiClient GET Error: ${e.response?.data ?? e.message}");
-      throw Exception("Erreur de requête GET : ${e.response?.statusCode}");
+      throw _handleError(e);
     }
   }
 
@@ -76,60 +94,73 @@ class ApiClient {
     try {
       return _dio.post(path, data: data);
     } on DioException catch (e) {
-      print("ApiClient POST Error: ${e.response?.data ?? e.message}");
-      throw Exception("Erreur de requête POST : ${e.response?.statusCode}");
+      throw _handleError(e);
     }
   }
 
+  /// **MÉTHODE `postMultipart` MISE À JOUR**
+  ///
   /// Exécute une requête POST avec des données `multipart/form-data`.
-  /// C'est la méthode à utiliser pour envoyer des fichiers (comme une image de profil)
+  /// C'est la méthode à utiliser pour envoyer des fichiers (images, PDF, etc.)
   /// en même temps que d'autres données textuelles.
   ///
-  /// [path]: Le chemin de l'API (ex: '/api/v1/update_profile.php').
-  /// [data]: Un `Map` contenant les champs de texte (ex: {'user_id': '1', 'name': 'John Doe'}).
-  /// [imageFile]: Le fichier image (`XFile`) à envoyer.
+  /// [path]: Le chemin de l'API (ex: '/api/v1/upload_file.php').
+  /// [data]: Un `Map` contenant les champs de texte.
+  /// [file]: Le fichier (`XFile`) à envoyer.
+  /// [fileKey]: **La clé sous laquelle le fichier sera envoyé.** C'est la correction majeure.
+  ///            Elle doit correspondre à ce que le script PHP attend (ex: `$_FILES['file']`).
   Future<Response> postMultipart({
     required String path,
     required Map<String, dynamic> data,
-    XFile? imageFile,
+    XFile? file,
+    String fileKey = 'file', // Par défaut, la clé est 'file'.
   }) async {
     try {
       // On crée un objet `FormData` qui va contenir tous les champs (texte et fichier).
       final formData = FormData.fromMap(data);
 
-      // Si un fichier image est fourni...
-      if (imageFile != null) {
-        // On l'ajoute au `FormData`.
+      // Si un fichier est fourni...
+      if (file != null) {
+        // On l'ajoute au `FormData` en utilisant la `fileKey` spécifiée.
         formData.files.add(
           MapEntry(
-            // **CORRECTION IMPORTANTE** : Le nom du champ ici ('profile_image')
-            // doit impérativement correspondre à la clé attendue dans le script PHP (`$_FILES['profile_image']`).
-            'profile_image',
-            // On utilise `MultipartFile.fromFile` pour préparer le fichier pour l'upload.
-            // C'est plus efficace que de lire tous les octets en mémoire.
+            fileKey, // Utilisation de la clé flexible.
             await MultipartFile.fromFile(
-              imageFile.path,
-              filename: imageFile.name, // On envoie le nom original du fichier.
+              file.path,
+              filename: file.name, // On envoie le nom original du fichier.
             ),
           ),
         );
       }
 
       // On exécute la requête POST avec le `FormData`.
-      // Dio se chargera de définir le `Content-Type` correct à 'multipart/form-data'.
       return await _dio.post(
         path,
         data: formData,
-        // Cette fonction de rappel peut être utilisée pour suivre la progression de l'upload.
-        // onSendProgress: (int sent, int total) {
-        //   print('Progression : ${(sent / total * 100).toStringAsFixed(2)}%');
-        // },
+        options: Options(
+          headers: {
+            // Dio gère le Content-Type, mais on peut être explicite si nécessaire.
+            'Content-Type': 'multipart/form-data',
+          },
+        ),
       );
     } on DioException catch (e) {
-      print("ApiClient Multipart POST Error: ${e.response?.data ?? e.message}");
-      throw Exception(
-        "Erreur lors de l'envoi du formulaire : ${e.response?.statusCode}",
+      throw _handleError(e);
+    }
+  }
+
+  // Gestionnaire d'erreurs amélioré pour donner plus de contexte.
+  String _handleError(DioException e) {
+    if (e.response != null) {
+      // Erreur avec une réponse du serveur (4xx, 5xx)
+      debugPrint(
+        'ApiClient Error: ${e.response?.statusCode} - ${e.response?.data}',
       );
+      return "Erreur du serveur: ${e.response?.statusCode} - ${e.response?.data['message'] ?? 'Erreur inconnue'}";
+    } else {
+      // Erreur de connexion, timeout, etc.
+      debugPrint('ApiClient Network Error: ${e.message}');
+      return "Erreur de connexion. Vérifiez votre réseau et réessayez. (${e.type})";
     }
   }
 }

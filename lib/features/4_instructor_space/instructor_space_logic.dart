@@ -1,6 +1,7 @@
 // lib/features/4_instructor_space/instructor_space_logic.dart
 
 import 'dart:async';
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
@@ -104,12 +105,11 @@ class CourseManagementBloc
               '#${event.color!.value.toRadixString(16).substring(2).toUpperCase()}',
       };
 
-      // **CORRECTION APPLIQUÉE ICI**
-      // Utilisation du paramètre nommé `path:` pour l'URL.
       await apiClient.postMultipart(
         path: '/api/v1/create_course.php',
         data: data,
-        imageFile: event.imageFile,
+        file: event.imageFile,
+        fileKey: 'imageFile',
       );
 
       emit(state.copyWith(status: CourseManagementStatus.success));
@@ -510,12 +510,11 @@ class CourseInfoEditorBloc
               '#${state.newColor!.value.toRadixString(16).substring(2).toUpperCase()}',
       };
 
-      // **CORRECTION APPLIQUÉE ICI**
-      // Utilisation du paramètre nommé `path:` pour l'URL.
       final response = await apiClient.postMultipart(
         path: '/api/v1/edit_course.php',
         data: data,
-        imageFile: state.newImageFile,
+        file: state.newImageFile,
+        fileKey: 'imageFile',
       );
 
       final newImageUrl = response.data['new_image_url'];
@@ -564,13 +563,26 @@ class FetchLessonDetails extends LessonEditorEvent {
 }
 
 class LessonContentChanged extends LessonEditorEvent {
-  final String? contentUrl;
-  final String? contentText;
-
-  const LessonContentChanged({this.contentUrl, this.contentText});
+  final LessonEntity lesson;
+  const LessonContentChanged({required this.lesson});
 }
 
 class SaveLessonContent extends LessonEditorEvent {}
+
+class UploadBlockFile extends LessonEditorEvent {
+  final XFile file;
+  final ContentBlockType blockType;
+  final String localBlockId;
+
+  const UploadBlockFile({
+    required this.file,
+    required this.blockType,
+    required this.localBlockId,
+  });
+
+  @override
+  List<Object?> get props => [file, blockType, localBlockId];
+}
 
 // --- STATES ---
 enum LessonEditorStatus { initial, loading, success, failure, saving }
@@ -587,6 +599,7 @@ class LessonEditorState extends Equatable {
       id: 0,
       title: '',
       lessonType: LessonType.unknown,
+      contentBlocks: [],
     ),
     this.error = '',
     this.isDirty = false,
@@ -619,6 +632,7 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
     on<FetchLessonDetails>(_onFetchLessonDetails);
     on<LessonContentChanged>(_onLessonContentChanged);
     on<SaveLessonContent>(_onSaveLessonContent);
+    on<UploadBlockFile>(_onUploadBlockFile);
   }
 
   Future<void> _onFetchLessonDetails(
@@ -650,11 +664,57 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
     LessonContentChanged event,
     Emitter<LessonEditorState> emit,
   ) {
-    final newLesson = state.lesson.copyWith(
-      contentUrl: event.contentUrl,
-      contentText: event.contentText,
+    emit(
+      state.copyWith(
+        lesson: event.lesson,
+        isDirty: true,
+        status: LessonEditorStatus.success,
+      ),
     );
-    emit(state.copyWith(lesson: newLesson, isDirty: true));
+  }
+
+  Future<void> _onUploadBlockFile(
+    UploadBlockFile event,
+    Emitter<LessonEditorState> emit,
+  ) async {
+    try {
+      final response = await apiClient.postMultipart(
+        path: '/api/v1/upload_file.php',
+        data: {},
+        file: event.file,
+      );
+
+      final String fileUrl = response.data['url'];
+
+      final updatedBlocks = state.lesson.contentBlocks.map((block) {
+        if (block.localId == event.localBlockId) {
+          return block.copyWith(
+            content: fileUrl,
+            uploadStatus: UploadStatus.completed,
+          );
+        }
+        return block;
+      }).toList();
+
+      emit(
+        state.copyWith(
+          lesson: state.lesson.copyWith(contentBlocks: updatedBlocks),
+          isDirty: true,
+        ),
+      );
+    } catch (e) {
+      final updatedBlocks = state.lesson.contentBlocks.map((block) {
+        if (block.localId == event.localBlockId) {
+          return block.copyWith(uploadStatus: UploadStatus.failed);
+        }
+        return block;
+      }).toList();
+      emit(
+        state.copyWith(
+          lesson: state.lesson.copyWith(contentBlocks: updatedBlocks),
+        ),
+      );
+    }
   }
 
   Future<void> _onSaveLessonContent(
@@ -663,21 +723,40 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
   ) async {
     if (!state.isDirty) return;
 
+    if (state.lesson.contentBlocks.any(
+      (b) => b.uploadStatus == UploadStatus.uploading,
+    )) {
+      emit(
+        state.copyWith(
+          status: LessonEditorStatus.failure,
+          error: "Veuillez attendre la fin du téléversement des fichiers.",
+        ),
+      );
+      await Future.delayed(const Duration(seconds: 2));
+      emit(state.copyWith(status: LessonEditorStatus.success));
+      return;
+    }
+
     emit(state.copyWith(status: LessonEditorStatus.saving));
     try {
-      await apiClient.post(
-        '/api/v1/update_lesson_content.php',
-        data: {
-          'lesson_id': state.lesson.id,
-          'content_url': state.lesson.contentUrl,
-          'content_text': state.lesson.contentText,
-        },
-      );
+      final lessonData = {
+        'lesson_id': state.lesson.id,
+        'content_blocks': state.lesson.contentBlocks
+            .where((b) => b.uploadStatus != UploadStatus.failed)
+            .map((b) => b.toJson())
+            .toList(),
+      };
+
+      await apiClient.post('/api/v1/save_lesson_content.php', data: lessonData);
+
       emit(state.copyWith(status: LessonEditorStatus.success, isDirty: false));
       add(FetchLessonDetails(state.lesson.id));
     } catch (e) {
       emit(
-        state.copyWith(status: LessonEditorStatus.failure, error: e.toString()),
+        state.copyWith(
+          status: LessonEditorStatus.failure,
+          error: "Erreur lors de la sauvegarde : $e",
+        ),
       );
     }
   }

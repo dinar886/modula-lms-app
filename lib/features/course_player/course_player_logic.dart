@@ -2,6 +2,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:modula_lms/core/api/api_client.dart';
+import 'dart:convert';
 
 //==============================================================================
 // ENTITIES
@@ -23,31 +24,118 @@ class SectionEntity extends Equatable {
   List<Object?> get props => [id, title, lessons];
 }
 
-// --- Lesson Entity ---
-enum LessonType { video, text, document, quiz, unknown }
+// --- Énumérations pour les Blocs de Contenu ---
+enum UploadStatus { uploading, completed, failed }
 
+enum ContentBlockType { text, video, image, document, unknown }
+
+// --- Entité pour un Bloc de Contenu ---
+class ContentBlockEntity extends Equatable {
+  final int id; // Vient de la BDD, 0 pour les nouveaux blocs
+  final String localId; // ID unique temporaire généré dans l'UI
+  final ContentBlockType blockType;
+  final String content;
+  final int orderIndex;
+  final UploadStatus uploadStatus; // Statut du téléversement
+
+  const ContentBlockEntity({
+    required this.id,
+    required this.localId,
+    required this.blockType,
+    required this.content,
+    required this.orderIndex,
+    this.uploadStatus = UploadStatus.completed,
+  });
+
+  // Factory pour créer un bloc depuis un JSON reçu de l'API.
+  factory ContentBlockEntity.fromJson(Map<String, dynamic> json) {
+    return ContentBlockEntity(
+      id: json['id'],
+      localId: json['id']
+          .toString(), // On peut utiliser l'ID de la BDD comme ID local
+      blockType: _blockTypeFromString(json['block_type']),
+      content: json['content'],
+      orderIndex: json['order_index'],
+    );
+  }
+
+  // Méthode pour convertir l'entité en JSON avant de l'envoyer à l'API.
+  Map<String, dynamic> toJson() {
+    return {
+      // On n'envoie pas l'ID car la BDD le gère (sauf si on voulait éditer)
+      'block_type': blockType.name,
+      'content': content,
+      'order_index': orderIndex,
+    };
+  }
+
+  ContentBlockEntity copyWith({
+    int? id,
+    String? localId,
+    ContentBlockType? blockType,
+    String? content,
+    int? orderIndex,
+    UploadStatus? uploadStatus,
+  }) {
+    return ContentBlockEntity(
+      id: id ?? this.id,
+      localId: localId ?? this.localId,
+      blockType: blockType ?? this.blockType,
+      content: content ?? this.content,
+      orderIndex: orderIndex ?? this.orderIndex,
+      uploadStatus: uploadStatus ?? this.uploadStatus,
+    );
+  }
+
+  // Helper pour convertir une chaîne en ContentBlockType.
+  static ContentBlockType _blockTypeFromString(String type) {
+    return ContentBlockType.values.firstWhere(
+      (e) => e.name == type,
+      orElse: () => ContentBlockType.unknown,
+    );
+  }
+
+  @override
+  List<Object?> get props => [
+    id,
+    localId,
+    blockType,
+    content,
+    orderIndex,
+    uploadStatus,
+  ];
+}
+
+// --- Énumération pour les types de leçons ---
+enum LessonType { video, text, document, quiz, devoir, evaluation, unknown }
+
+// --- Entité pour une Leçon ---
 class LessonEntity extends Equatable {
   final int id;
   final String title;
   final LessonType lessonType;
-  final String? contentUrl;
-  final String? contentText;
+  final List<ContentBlockEntity> contentBlocks;
 
   const LessonEntity({
     required this.id,
     required this.title,
     required this.lessonType,
-    this.contentUrl,
-    this.contentText,
+    this.contentBlocks = const [],
   });
 
   factory LessonEntity.fromJson(Map<String, dynamic> json) {
+    var blocks = <ContentBlockEntity>[];
+    if (json['content_blocks'] != null) {
+      blocks = (json['content_blocks'] as List)
+          .map((blockJson) => ContentBlockEntity.fromJson(blockJson))
+          .toList();
+    }
+
     return LessonEntity(
       id: json['id'],
       title: json['title'],
-      lessonType: LessonEntity.fromString(json['lesson_type']),
-      contentUrl: json['content_url'],
-      contentText: json['content_text'],
+      lessonType: _lessonTypeFromString(json['lesson_type']),
+      contentBlocks: blocks,
     );
   }
 
@@ -55,38 +143,28 @@ class LessonEntity extends Equatable {
     int? id,
     String? title,
     LessonType? lessonType,
-    String? contentUrl,
-    String? contentText,
+    List<ContentBlockEntity>? contentBlocks,
   }) {
     return LessonEntity(
       id: id ?? this.id,
       title: title ?? this.title,
       lessonType: lessonType ?? this.lessonType,
-      contentUrl: contentUrl,
-      contentText: contentText,
+      contentBlocks: contentBlocks ?? this.contentBlocks,
     );
   }
 
-  static LessonType fromString(String type) {
-    switch (type) {
-      case 'video':
-        return LessonType.video;
-      case 'text':
-        return LessonType.text;
-      case 'document':
-        return LessonType.document;
-      case 'quiz':
-        return LessonType.quiz;
-      default:
-        return LessonType.unknown;
-    }
+  static LessonType _lessonTypeFromString(String type) {
+    return LessonType.values.firstWhere(
+      (e) => e.name.toLowerCase() == type.toLowerCase(),
+      orElse: () => LessonType.unknown,
+    );
   }
 
   @override
-  List<Object?> get props => [id, title, lessonType, contentUrl, contentText];
+  List<Object?> get props => [id, title, lessonType, contentBlocks];
 }
 
-// --- Answer Entity ---
+// --- Entité pour une Réponse ---
 class AnswerEntity extends Equatable {
   final int id;
   final String text;
@@ -122,7 +200,7 @@ class AnswerEntity extends Equatable {
   List<Object?> get props => [id, text, isCorrect];
 }
 
-// --- Question Entity ---
+// --- Entité pour une Question ---
 class QuestionEntity extends Equatable {
   final int id;
   final String text;
@@ -167,7 +245,7 @@ class QuestionEntity extends Equatable {
   List<Object?> get props => [id, text, answers];
 }
 
-// --- Quiz Entity ---
+// --- Entité pour un Quiz ---
 class QuizEntity extends Equatable {
   final int id;
   final String title;
@@ -280,11 +358,7 @@ class CourseContentBloc extends Bloc<CourseContentEvent, CourseContentState> {
       ) {
         final List<LessonEntity> lessons = (sectionData['lessons'] as List).map(
           (lessonData) {
-            return LessonEntity(
-              id: lessonData['id'],
-              title: lessonData['title'],
-              lessonType: LessonEntity.fromString(lessonData['lesson_type']),
-            );
+            return LessonEntity.fromJson(lessonData);
           },
         ).toList();
 

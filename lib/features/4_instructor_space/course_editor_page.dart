@@ -36,13 +36,11 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
         ),
         BlocProvider(create: (context) => sl<CourseEditorBloc>()),
       ],
-      // Utilisation d'un Builder pour obtenir un context qui connaît CourseEditorBloc
       child: Builder(
         builder: (context) {
           return BlocListener<CourseEditorBloc, CourseEditorState>(
             listener: (context, state) {
               if (state is CourseEditorSuccess) {
-                // Rafraîchir la liste des sections/leçons après une opération réussie
                 context.read<CourseContentBloc>().add(
                   FetchCourseContent(_currentCourse.id),
                 );
@@ -111,7 +109,6 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                             ),
                             trailing: PopupMenuButton<String>(
                               onSelected: (value) {
-                                // On récupère le bloc ici, depuis le context de l'item
                                 final courseEditorBloc = context
                                     .read<CourseEditorBloc>();
                                 if (value == 'edit') {
@@ -165,15 +162,20 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                                 ),
                                 title: Text(lesson.title),
                                 onTap: () {
+                                  // Pour un quiz, on navigue vers l'éditeur de quiz.
                                   if (lesson.lessonType == LessonType.quiz) {
                                     context.push('/quiz-editor/${lesson.id}');
                                   } else {
-                                    context.push('/lesson-editor/${lesson.id}');
+                                    // Pour les autres leçons, on navigue vers l'éditeur de leçon
+                                    // en passant l'ID de la section parente via 'extra'.
+                                    context.push(
+                                      '/lesson-editor/${lesson.id}',
+                                      extra: section.id,
+                                    );
                                   }
                                 },
                                 trailing: PopupMenuButton<String>(
                                   onSelected: (value) {
-                                    // On récupère le bloc ici aussi
                                     final courseEditorBloc = context
                                         .read<CourseEditorBloc>();
                                     if (value == 'edit') {
@@ -230,9 +232,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
               ),
               floatingActionButton: FloatingActionButton.extended(
                 onPressed: () {
-                  // CORRECTION: On récupère le bloc depuis le context du Scaffold
                   final courseEditorBloc = context.read<CourseEditorBloc>();
-                  // Et on le passe à la fonction
                   _showAddSectionDialog(
                     context,
                     _currentCourse.id,
@@ -249,7 +249,6 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
-  // CORRECTION: La fonction accepte maintenant le bloc en paramètre
   void _showAddSectionDialog(
     BuildContext context,
     String courseId,
@@ -273,7 +272,6 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
           FilledButton(
             onPressed: () {
               if (titleController.text.isNotEmpty) {
-                // On utilise le bloc passé en paramètre
                 courseEditorBloc.add(
                   AddSection(title: titleController.text, courseId: courseId),
                 );
@@ -287,14 +285,13 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
-  // CORRECTION: Appliquée aussi ici
   void _showAddLessonDialog(
     BuildContext context,
     int sectionId,
     CourseEditorBloc courseEditorBloc,
   ) {
     final titleController = TextEditingController();
-    String selectedType = 'text'; // Type par défaut
+    String selectedType = 'text';
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -312,10 +309,16 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                 value: selectedType,
                 isExpanded: true,
                 items: const [
-                  DropdownMenuItem(value: 'text', child: Text('Texte')),
-                  DropdownMenuItem(value: 'video', child: Text('Vidéo')),
-                  DropdownMenuItem(value: 'document', child: Text('Document')),
+                  DropdownMenuItem(
+                    value: 'text',
+                    child: Text('Leçon (Texte, Vidéo, etc.)'),
+                  ),
                   DropdownMenuItem(value: 'quiz', child: Text('Quiz')),
+                  DropdownMenuItem(value: 'devoir', child: Text('Devoir')),
+                  DropdownMenuItem(
+                    value: 'evaluation',
+                    child: Text('Évaluation'),
+                  ),
                 ],
                 onChanged: (value) => setState(() => selectedType = value!),
               ),
@@ -347,7 +350,6 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
-  // CORRECTION: Appliquée aussi ici
   void _showEditSectionDialog(
     BuildContext context,
     int sectionId,
@@ -388,7 +390,6 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
-  // CORRECTION: Appliquée aussi ici
   void _showEditLessonDialog(
     BuildContext context,
     int lessonId,
@@ -467,6 +468,10 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
         return Icons.picture_as_pdf_outlined;
       case LessonType.quiz:
         return Icons.quiz_outlined;
+      case LessonType.devoir:
+        return Icons.assignment_outlined;
+      case LessonType.evaluation:
+        return Icons.assessment_outlined;
       default:
         return Icons.help_outline;
     }

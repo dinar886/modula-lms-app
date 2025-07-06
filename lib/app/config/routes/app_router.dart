@@ -94,6 +94,9 @@ class AppRouter {
             return LessonViewerPage(lessonId: lessonId);
           },
         ),
+        // **ROUTE CORRIGÉE**
+        // La route pour que l'étudiant passe le quiz.
+        // On s'assure que le chemin est bien '/quiz/:id'.
         GoRoute(
           path: '/quiz/:id',
           builder: (context, state) {
@@ -124,9 +127,19 @@ class AppRouter {
           path: '/lesson-editor/:id',
           builder: (context, state) {
             final lessonId = int.parse(state.pathParameters['id']!);
-            return LessonEditorPage(lessonId: lessonId);
+            final sectionId = state.extra as int?;
+
+            if (sectionId == null) {
+              return const Scaffold(
+                body: Center(
+                  child: Text("Erreur : ID de la section manquant."),
+                ),
+              );
+            }
+            return LessonEditorPage(lessonId: lessonId, sectionId: sectionId);
           },
         ),
+        // La route pour que l'instructeur édite le quiz.
         GoRoute(
           path: '/quiz-editor/:id',
           builder: (context, state) {
@@ -210,7 +223,7 @@ class AppRouter {
 
 /// Un `ChangeNotifier` qui écoute un `Stream` et notifie ses auditeurs à chaque
 /// nouvel événement. C'est le mécanisme qui permet à GoRouter de réagir aux
-/// changements d'état (comme la connexion ou la déconnexion).
+// changements d'état (comme la connexion ou la déconnexion).
 class GoRouterRefreshStream extends ChangeNotifier {
   late final StreamSubscription<dynamic> _subscription;
 
