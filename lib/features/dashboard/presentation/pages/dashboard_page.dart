@@ -1,43 +1,37 @@
+// lib/features/dashboard/presentation/pages/dashboard_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:modula_lms/features/1_auth/domain/entities/user_entity.dart';
-import 'package:modula_lms/features/1_auth/presentation/bloc/authentication_bloc.dart';
-import 'package:modula_lms/features/4_instructor_space/presentation/pages/instructor_dashboard_page.dart';
+import 'package:modula_lms/features/1_auth/auth_feature.dart';
+import 'package:modula_lms/features/3_learner_space/learner_dashboard_page.dart'; // Importez la nouvelle page.
+import 'package:modula_lms/features/4_instructor_space/instructor_dashboard_page.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // On écoute le bloc d'authentification global.
+    // On lit le rôle de l'utilisateur à partir du bloc d'authentification.
     final userRole = context.watch<AuthenticationBloc>().state.user.role;
 
-    // On affiche le tableau de bord approprié en fonction du rôle.
+    // On affiche le tableau de bord correspondant au rôle.
     switch (userRole) {
       case UserRole.instructor:
+        // Pour les instructeurs, on affiche leur tableau de bord.
         return const InstructorDashboardPage();
       case UserRole.learner:
+        // MISE À JOUR : Pour les élèves, on affiche maintenant leur nouveau tableau de bord.
         return const LearnerDashboardPage();
       default:
-        // Cas pour l'utilisateur non connecté ou rôle inconnu.
+        // Par défaut, si l'utilisateur n'est pas connecté ou que son rôle est inconnu.
         return const Center(
-          child: Text(
-            'Veuillez vous connecter pour voir votre tableau de bord.',
+          child: Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text(
+              'Veuillez vous connecter pour voir votre tableau de bord.',
+              textAlign: TextAlign.center,
+            ),
           ),
         );
     }
-  }
-}
-
-// Un simple placeholder pour le tableau de bord de l'apprenant.
-class LearnerDashboardPage extends StatelessWidget {
-  const LearnerDashboardPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Tableau de Bord')),
-      body: const Center(child: Text('Bienvenue sur votre tableau de bord !')),
-    );
   }
 }

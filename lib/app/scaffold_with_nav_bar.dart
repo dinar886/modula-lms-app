@@ -1,98 +1,113 @@
 // lib/app/scaffold_with_nav_bar.dart
-
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:modula_lms/features/1_auth/auth_feature.dart';
 
-// Ce widget est la "coquille" principale de notre application.
-// Il contient la barre de navigation inférieure et l'espace pour afficher les pages.
+/// Un Scaffold qui inclut une barre de navigation persistante.
+/// Utilisé par GoRouter pour les routes principales de l'application.
 class ScaffoldWithNavBar extends StatelessWidget {
-  // Le 'child' est le widget de la page actuelle que go_router nous demande d'afficher.
   final Widget child;
+  const ScaffoldWithNavBar({super.key, required this.child});
 
-  const ScaffoldWithNavBar({required this.child, super.key});
+  /// Calcule l'index de navigation actuel à partir de la route.
+  int _calculateSelectedIndex(BuildContext context) {
+    final String location = GoRouterState.of(context).uri.toString();
+    // On récupère le rôle de l'utilisateur pour ajuster la logique.
+    final userRole = context.read<AuthenticationBloc>().state.user.role;
+
+    if (location.startsWith('/marketplace')) return 0;
+    // Si l'utilisateur est un élève :
+    if (userRole == UserRole.learner) {
+      if (location.startsWith('/my-courses')) return 1;
+      if (location.startsWith('/dashboard')) return 2;
+      if (location.startsWith('/profile')) return 3;
+    } else {
+      // Si l'utilisateur est un instructeur :
+      if (location.startsWith('/dashboard')) return 1;
+      if (location.startsWith('/profile')) return 2;
+    }
+    return 0; // Par défaut, on retourne sur le catalogue.
+  }
+
+  /// Gère la navigation lors du clic sur un onglet.
+  void _onItemTapped(int index, BuildContext context) {
+    final userRole = context.read<AuthenticationBloc>().state.user.role;
+
+    // Logique de navigation pour un élève
+    if (userRole == UserRole.learner) {
+      switch (index) {
+        case 0:
+          context.go('/marketplace');
+          break;
+        case 1:
+          context.go('/my-courses');
+          break;
+        case 2:
+          context.go('/dashboard');
+          break;
+        case 3:
+          context.go('/profile');
+          break;
+      }
+    } else {
+      // Logique de navigation pour un instructeur
+      switch (index) {
+        case 0:
+          context.go('/marketplace');
+          break;
+        case 1:
+          context.go('/dashboard');
+          break;
+        case 2:
+          context.go('/profile');
+          break;
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    // On récupère le rôle pour construire la liste des onglets.
+    final userRole = context.watch<AuthenticationBloc>().state.user.role;
+
+    // On définit la liste des onglets qui seront affichés.
+    final List<BottomNavigationBarItem> items = [
+      const BottomNavigationBarItem(
+        icon: Icon(Icons.store_outlined),
+        label: 'Catalogue',
+        activeIcon: Icon(Icons.store),
+      ),
+      // On ajoute l'onglet "Mes Cours" seulement si l'utilisateur est un élève.
+      if (userRole == UserRole.learner)
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.video_library_outlined),
+          label: 'Mes Cours',
+          activeIcon: Icon(Icons.video_library),
+        ),
+      const BottomNavigationBarItem(
+        icon: Icon(Icons.dashboard_outlined),
+        label: 'Tableau de bord',
+        activeIcon: Icon(Icons.dashboard),
+      ),
+      const BottomNavigationBarItem(
+        icon: Icon(Icons.person_outline),
+        label: 'Profil',
+        activeIcon: Icon(Icons.person),
+      ),
+    ];
+
     return Scaffold(
-      // Le corps de notre Scaffold est la page actuelle.
       body: child,
-
-      // La barre de navigation inférieure.
       bottomNavigationBar: BottomNavigationBar(
-        // 'currentIndex' détermine quel onglet est actuellement sélectionné (et donc surligné).
+        items: items,
         currentIndex: _calculateSelectedIndex(context),
-
-        // Style pour les onglets non sélectionnés.
-        unselectedItemColor: Colors.grey,
-        // Style pour l'onglet sélectionné.
+        onTap: (index) => _onItemTapped(index, context),
+        // Style pour la barre de navigation
+        type: BottomNavigationBarType.fixed,
         selectedItemColor: Theme.of(context).primaryColor,
-
-        // Cette fonction est appelée lorsqu'un utilisateur appuie sur un onglet.
-        onTap: (int index) {
-          // On utilise la méthode 'go' de go_router pour naviguer vers la nouvelle page.
-          _onItemTapped(index, context);
-        },
-
-        // La liste des onglets à afficher dans la barre.
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.school_outlined),
-            activeIcon: Icon(Icons.school),
-            label: 'Catalogue',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.video_library_outlined),
-            activeIcon: Icon(Icons.video_library),
-            label: 'Mes Cours',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard_outlined),
-            activeIcon: Icon(Icons.dashboard),
-            label: 'Tableau de bord',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Profil',
-          ),
-        ],
+        unselectedItemColor: Colors.grey,
       ),
     );
-  }
-
-  // Cette méthode privée détermine l'index de l'onglet sélectionné en fonction de l'URL actuelle.
-  int _calculateSelectedIndex(BuildContext context) {
-    final String location = GoRouterState.of(context).uri.toString();
-    if (location.startsWith('/marketplace')) {
-      return 0;
-    }
-    if (location.startsWith('/my-courses')) {
-      return 1;
-    }
-    if (location.startsWith('/dashboard')) {
-      return 2;
-    }
-    if (location.startsWith('/profile')) {
-      return 3;
-    }
-    return 0; // Par défaut, on sélectionne le premier onglet.
-  }
-
-  // Cette méthode gère la navigation lorsque l'on appuie sur un onglet.
-  void _onItemTapped(int index, BuildContext context) {
-    switch (index) {
-      case 0:
-        context.go('/marketplace');
-        break;
-      case 1:
-        context.go('/my-courses');
-        break;
-      case 2:
-        context.go('/dashboard');
-        break;
-      case 3:
-        context.go('/profile');
-        break;
-    }
   }
 }

@@ -1,10 +1,11 @@
+// lib/app/app.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:modula_lms/app/config/routes/app_router.dart';
 import 'package:modula_lms/app/config/theme/app_theme.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
-import 'package:modula_lms/features/1_auth/data/repositories/authentication_repository.dart';
-import 'package:modula_lms/features/1_auth/presentation/bloc/authentication_bloc.dart';
+// NOUVEL IMPORT qui regroupe Repository et BLoC d'authentification
+import 'package:modula_lms/features/1_auth/auth_feature.dart';
 
 class App extends StatelessWidget {
   const App({super.key});
@@ -23,7 +24,7 @@ class App extends StatelessWidget {
   }
 }
 
-// On sépare la vue pour pouvoir accéder facilement au contexte avec le Bloc.
+// On sépare la vue pour pouvoir accéder facilement au contexte avec le Bloc et le Router.
 class AppView extends StatelessWidget {
   const AppView({super.key});
 
