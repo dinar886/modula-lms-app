@@ -27,7 +27,8 @@ class SectionEntity extends Equatable {
 // --- Énumérations pour les Blocs de Contenu ---
 enum UploadStatus { uploading, completed, failed }
 
-enum ContentBlockType { text, video, image, document, unknown }
+// MODIFICATION: Ajout du type 'quiz'.
+enum ContentBlockType { text, video, image, document, quiz, unknown }
 
 // --- Entité pour un Bloc de Contenu ---
 class ContentBlockEntity extends Equatable {
@@ -180,12 +181,19 @@ class AnswerEntity extends Equatable {
     return AnswerEntity(
       id: json['id'],
       text: json['answer_text'],
-      isCorrect: json['is_correct'],
+      // PHP renvoie 0 ou 1, on convertit en booléen.
+      isCorrect: json['is_correct'] == 1 || json['is_correct'] == true,
     );
   }
 
   Map<String, dynamic> toJson() {
-    return {'answer_text': text, 'is_correct': isCorrect};
+    return {
+      'id': id > 1000000000
+          ? 0
+          : id, // Si c'est un ID local (timestamp), on l'envoie comme 0
+      'answer_text': text,
+      'is_correct': isCorrect,
+    };
   }
 
   AnswerEntity copyWith({int? id, String? text, bool? isCorrect}) {
@@ -224,6 +232,9 @@ class QuestionEntity extends Equatable {
 
   Map<String, dynamic> toJson() {
     return {
+      'id': id > 1000000000
+          ? 0
+          : id, // Si c'est un ID local, on l'envoie comme 0
       'question_text': text,
       'answers': answers.map((a) => a.toJson()).toList(),
     };
@@ -446,6 +457,8 @@ abstract class QuizEvent extends Equatable {
 }
 
 class FetchQuiz extends QuizEvent {
+  // MODIFICATION: Ce BLoC est pour l'affichage du quiz côté étudiant.
+  // Il continuera de fonctionner avec le lessonId.
   final int lessonId;
   const FetchQuiz(this.lessonId);
 }
@@ -509,6 +522,11 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
   Future<void> _onFetchQuiz(FetchQuiz event, Emitter<QuizState> emit) async {
     emit(state.copyWith(status: QuizStatus.loading));
     try {
+      // Le script get_quiz_details prend maintenant un quiz_id.
+      // Côté étudiant, on ne connaît que le lesson_id. Le backend doit donc
+      // trouver le quiz_id à partir du lesson_id.
+      // Pour l'instant, nous supposons que le backend a été adapté pour
+      // faire cette recherche.
       final response = await apiClient.get(
         '/api/v1/get_quiz_details.php',
         queryParameters: {'lesson_id': event.lessonId},

@@ -1,20 +1,22 @@
 // lib/features/4_instructor_space/quiz_editor_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
 
 import 'package:modula_lms/features/4_instructor_space/instructor_space_logic.dart';
 
 class QuizEditorPage extends StatelessWidget {
-  final int lessonId;
-  const QuizEditorPage({super.key, required this.lessonId});
+  // MODIFICATION: La page reçoit maintenant un 'quizId'.
+  final int quizId;
+  const QuizEditorPage({super.key, required this.quizId});
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (context) =>
-          sl<QuizEditorBloc>()..add(FetchQuizForEditing(lessonId)),
+          sl<QuizEditorBloc>()..add(FetchQuizForEditing(quizId)),
       child: BlocConsumer<QuizEditorBloc, QuizEditorState>(
         listenWhen: (previous, current) => previous.status != current.status,
         listener: (context, state) {
@@ -29,41 +31,53 @@ class QuizEditorPage extends StatelessWidget {
                 backgroundColor: Colors.green,
               ),
             );
+            // MODIFICATION: Lorsque le quiz est sauvegardé avec succès,
+            // on retourne à la page précédente en renvoyant l'ID du quiz.
+            context.pop(state.quiz.id);
           }
         },
         builder: (context, state) {
-          return Scaffold(
-            appBar: AppBar(
-              title: Text(
-                state.status == QuizEditorStatus.initial
-                    ? 'Chargement...'
-                    : 'Éditer le Quiz',
-              ),
-              actions: [
-                if (state.isDirty)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8.0),
-                    child: FilledButton(
-                      onPressed: state.status == QuizEditorStatus.saving
-                          ? null
-                          : () => context.read<QuizEditorBloc>().add(
-                              SaveQuizPressed(),
-                            ),
-                      child: state.status == QuizEditorStatus.saving
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 3,
-                                color: Colors.white,
+          return PopScope(
+            // S'assure que si on quitte la page avec des changements non sauvegardés,
+            // on renvoie l'ID actuel (qui pourrait être 0 si rien n'a été sauvegardé).
+            onPopInvoked: (didPop) {
+              if (didPop) {
+                if (state.quiz.id == 0) {
+                  context.pop(quizId);
+                }
+              }
+            },
+            child: Scaffold(
+              appBar: AppBar(
+                title: Text(
+                  state.quiz.id == 0 ? 'Créer un Quiz' : 'Éditer le Quiz',
+                ),
+                actions: [
+                  if (state.isDirty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: FilledButton(
+                        onPressed: state.status == QuizEditorStatus.saving
+                            ? null
+                            : () => context.read<QuizEditorBloc>().add(
+                                SaveQuizPressed(),
                               ),
-                            )
-                          : const Text('Enregistrer'),
+                        child: state.status == QuizEditorStatus.saving
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('Enregistrer'),
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
+              body: _buildBody(context, state),
             ),
-            body: _buildBody(context, state),
           );
         },
       ),
@@ -80,6 +94,8 @@ class QuizEditorPage extends StatelessWidget {
       padding: const EdgeInsets.all(16.0),
       children: [
         TextFormField(
+          // On utilise une clé pour forcer la reconstruction du widget si le quiz change.
+          key: ValueKey(state.quiz.title),
           initialValue: state.quiz.title,
           decoration: const InputDecoration(
             labelText: 'Titre du Quiz',
@@ -92,6 +108,7 @@ class QuizEditorPage extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         TextFormField(
+          key: ValueKey(state.quiz.description),
           initialValue: state.quiz.description,
           decoration: const InputDecoration(
             labelText: 'Description du Quiz',
@@ -122,7 +139,18 @@ class QuizEditorPage extends StatelessWidget {
             final newQuestion = QuestionEntity(
               id: DateTime.now().millisecondsSinceEpoch,
               text: 'Nouvelle Question',
-              answers: [],
+              answers: [
+                AnswerEntity(
+                  id: DateTime.now().millisecondsSinceEpoch + 1,
+                  text: '',
+                  isCorrect: true,
+                ),
+                AnswerEntity(
+                  id: DateTime.now().millisecondsSinceEpoch + 2,
+                  text: '',
+                  isCorrect: false,
+                ),
+              ],
             );
             final newQuestions = [...state.quiz.questions, newQuestion];
             final updatedQuiz = state.quiz.copyWith(questions: newQuestions);
@@ -157,6 +185,7 @@ class _QuestionEditorCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TextFormField(
+              key: ValueKey(question.text),
               initialValue: question.text,
               decoration: InputDecoration(
                 labelText: 'Question ${questionIndex + 1}',
@@ -176,6 +205,7 @@ class _QuestionEditorCard extends StatelessWidget {
             ...question.answers.map((answer) {
               final answerIndex = question.answers.indexOf(answer);
               return _AnswerEditorRow(
+                key: ValueKey(answer.id),
                 answer: answer,
                 answerIndex: answerIndex,
                 questionIndex: questionIndex,
@@ -233,6 +263,7 @@ class _AnswerEditorRow extends StatelessWidget {
   final int answerIndex;
 
   const _AnswerEditorRow({
+    super.key,
     required this.answer,
     required this.questionIndex,
     required this.answerIndex,
@@ -267,6 +298,7 @@ class _AnswerEditorRow extends StatelessWidget {
         ),
         Expanded(
           child: TextFormField(
+            key: ValueKey(answer.text),
             initialValue: answer.text,
             decoration: const InputDecoration(hintText: 'Texte de la réponse'),
             onChanged: (newText) {

@@ -1,5 +1,7 @@
 <?php
 // Fichier : /api/v1/save_quiz.php
+// Version améliorée qui gère la CRÉATION et la MISE À JOUR d'un quiz.
+
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST");
@@ -7,82 +9,79 @@ header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers
 
 require_once 'config.php';
 
-// On récupère le corps de la requête qui contient notre objet Quiz en JSON.
 $data = json_decode(file_get_contents("php://input"));
 
-// On vérifie que les données essentielles (ID du quiz et la liste des questions) sont présentes.
-if (!empty($data->id) && isset($data->questions)) {
-    $conn = new mysqli($servername, $username, $password, $dbname);
-    if ($conn->connect_error) {
-        http_response_code(500);
-        echo json_encode(["message" => "Connection failed: " . $conn->connect_error]);
-        exit();
+// On vérifie seulement la présence du titre et des questions.
+if (!isset($data->title) || !isset($data->questions)) {
+    http_response_code(400);
+    echo json_encode(["message" => "Données du quiz incomplètes."]);
+    exit();
+}
+
+$conn = new mysqli($servername, $username, $password, $dbname);
+if ($conn->connect_error) {
+    http_response_code(500);
+    echo json_encode(["message" => "Échec de la connexion : " . $conn->connect_error]);
+    exit();
+}
+$conn->set_charset("utf8mb4");
+
+// On récupère les données. L'ID peut être 0 si c'est un nouveau quiz.
+$quiz_id = isset($data->id) ? (int)$data->id : 0;
+$title = $conn->real_escape_string($data->title);
+$description = isset($data->description) ? $conn->real_escape_string($data->description) : '';
+$questions = $data->questions;
+
+$conn->begin_transaction();
+
+try {
+    // **Partie 1: Création ou Mise à jour de l'entité Quiz**
+    if ($quiz_id === 0) {
+        // C'est un nouveau quiz. On l'insère dans la table 'quizzes'.
+        // NOTE: Ce script suppose une table `quizzes`. Si vos quiz sont dans la table `lessons`,
+        // il faudra adapter cette requête.
+        $sql_quiz = "INSERT INTO quizzes (title, description) VALUES (?, ?)";
+        $stmt_quiz = $conn->prepare($sql_quiz);
+        $stmt_quiz->bind_param("ss", $title, $description);
+        $stmt_quiz->execute();
+        $quiz_id = $conn->insert_id; // On récupère l'ID du quiz qu'on vient de créer.
+        $stmt_quiz->close();
+    } else {
+        // C'est une mise à jour. On met à jour le titre et la description.
+        $sql_quiz = "UPDATE quizzes SET title = ?, description = ? WHERE id = ?";
+        $stmt_quiz = $conn->prepare($sql_quiz);
+        $stmt_quiz->bind_param("ssi", $title, $description, $quiz_id);
+        $stmt_quiz->execute();
+        $stmt_quiz->close();
     }
 
-    // Récupération et nettoyage des données.
-    $quiz_id = (int)$data->id;
-    $quiz_title = $conn->real_escape_string($data->title);
-    $quiz_description = $conn->real_escape_string($data->description);
-    $questions = $data->questions;
+    // **Partie 2: Synchronisation des Questions et Réponses**
+    // La méthode la plus simple et la plus sûre est de tout supprimer puis tout réinsérer.
+    // On s'assure que le quiz est dans un état propre, correspondant exactement à ce qui a été envoyé.
 
-    // --- DEBUT DE LA TRANSACTION ---
-    // Une transaction assure que toutes les opérations (DELETE, INSERTs)
-    // réussissent ensemble. Si une seule échoue, tout est annulé (rollback).
-    // C'est crucial pour la cohérence des données.
-    $conn->begin_transaction();
+    // On supprime d'abord les anciennes réponses liées aux questions de ce quiz.
+    $conn->query("DELETE answers FROM answers JOIN questions ON answers.question_id = questions.id WHERE questions.quiz_id = $quiz_id");
 
-    try {
-        // Étape 1: Mettre à jour le titre et la description du quiz lui-même.
-        $sql_update_quiz = "UPDATE quizzes SET title = ?, description = ? WHERE id = ?";
-        $stmt_update_quiz = $conn->prepare($sql_update_quiz);
-        $stmt_update_quiz->bind_param("ssi", $quiz_title, $quiz_description, $quiz_id);
-        $stmt_update_quiz->execute();
-        $stmt_update_quiz->close();
+    // Ensuite, on supprime les anciennes questions elles-mêmes.
+    $conn->query("DELETE FROM questions WHERE quiz_id = $quiz_id");
 
-
-        // Étape 2: Récupérer les IDs de toutes les anciennes questions liées à ce quiz.
-        $sql_get_old_questions = "SELECT id FROM questions WHERE quiz_id = ?";
-        $stmt_get_old = $conn->prepare($sql_get_old_questions);
-        $stmt_get_old->bind_param("i", $quiz_id);
-        $stmt_get_old->execute();
-        $result_old = $stmt_get_old->get_result();
-        $old_question_ids = [];
-        while($row = $result_old->fetch_assoc()){
-            $old_question_ids[] = $row['id'];
-        }
-        $stmt_get_old->close();
-        
-        // Étape 3: Si des anciennes questions existent, supprimer leurs réponses associées.
-        if (!empty($old_question_ids)) {
-             $id_list = implode(',', $old_question_ids); // Crée une chaine "1,2,3"
-             $conn->query("DELETE FROM answers WHERE question_id IN ($id_list)");
-        }
-        
-        // Étape 4: Supprimer toutes les anciennes questions du quiz.
-        $sql_delete_questions = "DELETE FROM questions WHERE quiz_id = ?";
-        $stmt_delete = $conn->prepare($sql_delete_questions);
-        $stmt_delete->bind_param("i", $quiz_id);
-        $stmt_delete->execute();
-        $stmt_delete->close();
-
-
-        // Étape 5: Boucler sur les nouvelles questions reçues pour les insérer.
+    // Maintenant, on insère les nouvelles questions et réponses.
+    if (is_array($questions)) {
         foreach ($questions as $question_index => $question) {
+            $question_text = $conn->real_escape_string($question->question_text);
+            
             $sql_insert_question = "INSERT INTO questions (quiz_id, question_text, order_index) VALUES (?, ?, ?)";
             $stmt_question = $conn->prepare($sql_insert_question);
-            // On s'assure que le texte est bien une chaine.
-            $question_text = is_string($question->question_text) ? $question->question_text : '';
             $stmt_question->bind_param("isi", $quiz_id, $question_text, $question_index);
             $stmt_question->execute();
-            $new_question_id = $conn->insert_id; // On récupère l'ID de la question juste insérée.
+            $new_question_id = $conn->insert_id;
             $stmt_question->close();
 
-            // Étape 6: Boucler sur les réponses de cette question pour les insérer.
             if (isset($question->answers) && is_array($question->answers)) {
                 foreach ($question->answers as $answer) {
-                    $is_correct = isset($answer->is_correct) ? (int)$answer->is_correct : 0;
-                    $answer_text = is_string($answer->answer_text) ? $answer->answer_text : '';
-                    
+                    $answer_text = $conn->real_escape_string($answer->answer_text);
+                    $is_correct = (isset($answer->is_correct) && $answer->is_correct) ? 1 : 0;
+
                     $sql_insert_answer = "INSERT INTO answers (question_id, answer_text, is_correct) VALUES (?, ?, ?)";
                     $stmt_answer = $conn->prepare($sql_insert_answer);
                     $stmt_answer->bind_param("isi", $new_question_id, $answer_text, $is_correct);
@@ -91,26 +90,28 @@ if (!empty($data->id) && isset($data->questions)) {
                 }
             }
         }
-
-        // --- COMMIT ---
-        // Si toutes les opérations ci-dessus ont réussi, on valide la transaction.
-        // Les changements sont maintenant permanents dans la base de données.
-        $conn->commit();
-        http_response_code(200);
-        echo json_encode(["message" => "Quiz sauvegardé avec succès."]);
-
-    } catch (mysqli_sql_exception $exception) {
-        // --- ROLLBACK ---
-        // Si une erreur est survenue à n'importe quelle étape, on annule TOUT.
-        $conn->rollback();
-        http_response_code(500);
-        echo json_encode(["message" => "Erreur lors de la sauvegarde du quiz.", "error" => $exception->getMessage()]);
     }
 
-    $conn->close();
-} else {
-    // Si les données envoyées ne sont pas valides.
-    http_response_code(400);
-    echo json_encode(["message" => "Données du quiz incomplètes ou invalides."]);
+    // Si tout s'est bien passé, on valide la transaction.
+    $conn->commit();
+    
+    // **TRÈS IMPORTANT** : On renvoie l'ID du quiz, qu'il soit nouveau ou mis à jour.
+    // L'application Flutter en a besoin pour mettre à jour le contenu du bloc.
+    http_response_code(200);
+    echo json_encode([
+        "message" => "Quiz sauvegardé avec succès.",
+        "quiz_id" => $quiz_id
+    ]);
+
+} catch (mysqli_sql_exception $exception) {
+    // En cas d'erreur, on annule toutes les opérations.
+    $conn->rollback();
+    http_response_code(500);
+    echo json_encode([
+        "message" => "Erreur lors de la sauvegarde du quiz.",
+        "error" => $exception->getMessage()
+    ]);
 }
+
+$conn->close();
 ?>

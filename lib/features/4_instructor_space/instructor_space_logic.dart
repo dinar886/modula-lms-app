@@ -232,6 +232,7 @@ class CourseEditorBloc extends Bloc<CourseEditorEvent, CourseEditorState> {
         data: {
           'title': event.title,
           'section_id': event.sectionId,
+          // MODIFICATION: on passe le type de leçon, qui sera maintenant toujours 'text'.
           'lesson_type': event.lessonType,
         },
       );
@@ -584,6 +585,17 @@ class UploadBlockFile extends LessonEditorEvent {
   List<Object?> get props => [file, blockType, localBlockId];
 }
 
+// NOUVEL ÉVÉNEMENT: Pour mettre à jour un bloc quiz avec son ID après sauvegarde.
+class UpdateQuizBlock extends LessonEditorEvent {
+  final String localBlockId;
+  final int quizId;
+
+  const UpdateQuizBlock({required this.localBlockId, required this.quizId});
+
+  @override
+  List<Object?> get props => [localBlockId, quizId];
+}
+
 // --- STATES ---
 enum LessonEditorStatus { initial, loading, success, failure, saving }
 
@@ -633,6 +645,9 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
     on<LessonContentChanged>(_onLessonContentChanged);
     on<SaveLessonContent>(_onSaveLessonContent);
     on<UploadBlockFile>(_onUploadBlockFile);
+    on<UpdateQuizBlock>(
+      _onUpdateQuizBlock,
+    ); // Enregistrement du nouvel événement
   }
 
   Future<void> _onFetchLessonDetails(
@@ -717,6 +732,31 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
     }
   }
 
+  // NOUVELLE MÉTHODE: Gère la mise à jour du bloc quiz.
+  void _onUpdateQuizBlock(
+    UpdateQuizBlock event,
+    Emitter<LessonEditorState> emit,
+  ) {
+    final updatedBlocks = state.lesson.contentBlocks.map((block) {
+      if (block.localId == event.localBlockId) {
+        // On met à jour le contenu du bloc avec le nouvel ID du quiz.
+        return block.copyWith(
+          content: event.quizId.toString(),
+          uploadStatus: UploadStatus.completed,
+        );
+      }
+      return block;
+    }).toList();
+
+    emit(
+      state.copyWith(
+        lesson: state.lesson.copyWith(contentBlocks: updatedBlocks),
+        isDirty: true,
+        status: LessonEditorStatus.success,
+      ),
+    );
+  }
+
   Future<void> _onSaveLessonContent(
     SaveLessonContent event,
     Emitter<LessonEditorState> emit,
@@ -729,7 +769,8 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
       emit(
         state.copyWith(
           status: LessonEditorStatus.failure,
-          error: "Veuillez attendre la fin du téléversement des fichiers.",
+          error:
+              "Veuillez attendre la fin du téléversement ou de la création des blocs.",
         ),
       );
       await Future.delayed(const Duration(seconds: 2));
@@ -773,9 +814,10 @@ abstract class QuizEditorEvent extends Equatable {
   List<Object> get props => [];
 }
 
+// MODIFICATION: L'événement prend maintenant un 'quizId'.
 class FetchQuizForEditing extends QuizEditorEvent {
-  final int lessonId;
-  const FetchQuizForEditing(this.lessonId);
+  final int quizId;
+  const FetchQuizForEditing(this.quizId);
 }
 
 class QuizChanged extends QuizEditorEvent {
@@ -838,11 +880,25 @@ class QuizEditorBloc extends Bloc<QuizEditorEvent, QuizEditorState> {
     FetchQuizForEditing event,
     Emitter<QuizEditorState> emit,
   ) async {
+    // MODIFICATION: Si le quizId est 0, c'est un nouveau quiz.
+    if (event.quizId == 0) {
+      emit(
+        state.copyWith(
+          status: QuizEditorStatus.loaded,
+          quiz: const QuizEntity(id: 0, title: 'Nouveau Quiz', questions: []),
+          isDirty:
+              true, // On le marque comme "dirty" pour activer le bouton de sauvegarde.
+        ),
+      );
+      return;
+    }
+
     emit(state.copyWith(status: QuizEditorStatus.loading));
     try {
+      // On appelle le script PHP avec le 'quiz_id'.
       final response = await apiClient.get(
         '/api/v1/get_quiz_details.php',
-        queryParameters: {'lesson_id': event.lessonId},
+        queryParameters: {'quiz_id': event.quizId},
       );
       final quiz = QuizEntity.fromJson(response.data);
       emit(
@@ -903,8 +959,25 @@ class QuizEditorBloc extends Bloc<QuizEditorEvent, QuizEditorState> {
 
     emit(state.copyWith(status: QuizEditorStatus.saving));
     try {
-      await apiClient.post('/api/v1/save_quiz.php', data: state.quiz.toJson());
-      emit(state.copyWith(status: QuizEditorStatus.success, isDirty: false));
+      final response = await apiClient.post(
+        '/api/v1/save_quiz.php',
+        data: state.quiz.toJson(),
+      );
+
+      // MODIFICATION: On récupère l'ID du quiz renvoyé par le backend.
+      final savedQuizId = response.data['quiz_id'];
+
+      // On met à jour l'ID du quiz dans l'état local.
+      final updatedQuiz = state.quiz.copyWith(id: savedQuizId);
+
+      emit(
+        state.copyWith(
+          status: QuizEditorStatus.success,
+          isDirty: false,
+          quiz: updatedQuiz, // On met à jour le quiz dans l'état
+        ),
+      );
+
       await Future.delayed(const Duration(seconds: 1));
       emit(state.copyWith(status: QuizEditorStatus.loaded));
     } catch (e) {

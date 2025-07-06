@@ -162,17 +162,12 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                                 ),
                                 title: Text(lesson.title),
                                 onTap: () {
-                                  // Pour un quiz, on navigue vers l'éditeur de quiz.
-                                  if (lesson.lessonType == LessonType.quiz) {
-                                    context.push('/quiz-editor/${lesson.id}');
-                                  } else {
-                                    // Pour les autres leçons, on navigue vers l'éditeur de leçon
-                                    // en passant l'ID de la section parente via 'extra'.
-                                    context.push(
-                                      '/lesson-editor/${lesson.id}',
-                                      extra: section.id,
-                                    );
-                                  }
+                                  // La navigation vers l'éditeur de leçon est maintenant la même pour tous les types.
+                                  // La distinction de contenu se fait à l'intérieur de l'éditeur.
+                                  context.push(
+                                    '/lesson-editor/${lesson.id}',
+                                    extra: section.id,
+                                  );
                                 },
                                 trailing: PopupMenuButton<String>(
                                   onSelected: (value) {
@@ -291,39 +286,14 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     CourseEditorBloc courseEditorBloc,
   ) {
     final titleController = TextEditingController();
-    String selectedType = 'text';
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Nouvelle Leçon'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: titleController,
-              decoration: const InputDecoration(labelText: 'Titre'),
-              autofocus: true,
-            ),
-            StatefulBuilder(
-              builder: (context, setState) => DropdownButton<String>(
-                value: selectedType,
-                isExpanded: true,
-                items: const [
-                  DropdownMenuItem(
-                    value: 'text',
-                    child: Text('Leçon (Texte, Vidéo, etc.)'),
-                  ),
-                  DropdownMenuItem(value: 'quiz', child: Text('Quiz')),
-                  DropdownMenuItem(value: 'devoir', child: Text('Devoir')),
-                  DropdownMenuItem(
-                    value: 'evaluation',
-                    child: Text('Évaluation'),
-                  ),
-                ],
-                onChanged: (value) => setState(() => selectedType = value!),
-              ),
-            ),
-          ],
+        content: TextField(
+          controller: titleController,
+          decoration: const InputDecoration(labelText: 'Titre de la leçon'),
+          autofocus: true,
         ),
         actions: [
           TextButton(
@@ -333,11 +303,12 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
           FilledButton(
             onPressed: () {
               if (titleController.text.isNotEmpty) {
+                // MODIFICATION: On ne demande plus le type. On envoie 'text' par défaut.
                 courseEditorBloc.add(
                   AddLesson(
                     title: titleController.text,
                     sectionId: sectionId,
-                    lessonType: selectedType,
+                    lessonType: 'text',
                   ),
                 );
                 Navigator.pop(dialogContext);

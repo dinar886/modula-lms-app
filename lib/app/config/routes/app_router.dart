@@ -26,33 +26,21 @@ import 'package:modula_lms/features/course_player/quiz_page.dart';
 import 'package:modula_lms/features/dashboard/presentation/pages/dashboard_page.dart';
 import 'package:modula_lms/features/shared/profile_page.dart';
 
-/// Classe de configuration pour le routeur de l'application.
-/// Elle utilise GoRouter pour définir toutes les routes disponibles.
 class AppRouter {
-  /// Construit l'instance du routeur GoRouter.
-  /// Cette méthode statique est appelée au démarrage de l'application.
   static GoRouter buildRouter(BuildContext context) {
-    // Récupère le BLoC d'authentification pour gérer la redirection.
     final authBloc = context.read<AuthenticationBloc>();
 
     return GoRouter(
-      // La route initiale de l'application.
       initialLocation: '/marketplace',
-      // 'refreshListenable' permet au routeur de réagir aux changements d'état
-      // d'authentification pour appliquer les redirections.
       refreshListenable: GoRouterRefreshStream(authBloc.stream),
       routes: [
-        // 'ShellRoute' est utilisée pour les routes qui partagent une interface commune,
-        // ici, le 'ScaffoldWithNavBar' qui affiche la barre de navigation.
         ShellRoute(
           builder: (context, state, child) => ScaffoldWithNavBar(child: child),
           routes: [
-            // Route pour la place de marché (Marketplace).
             GoRoute(
               path: '/marketplace',
               builder: (context, state) => const CourseListPage(),
               routes: [
-                // Route imbriquée pour afficher les détails d'un cours.
                 GoRoute(
                   path: 'course/:id',
                   builder: (context, state) {
@@ -62,24 +50,20 @@ class AppRouter {
                 ),
               ],
             ),
-            // Route pour la page "Mes Cours" de l'apprenant.
             GoRoute(
               path: '/my-courses',
               builder: (context, state) => const MyCoursesPage(),
             ),
-            // Route pour le tableau de bord.
             GoRoute(
               path: '/dashboard',
               builder: (context, state) => const DashboardPage(),
             ),
-            // Route pour la page de profil de l'utilisateur.
             GoRoute(
               path: '/profile',
               builder: (context, state) => const ProfilePage(),
             ),
           ],
         ),
-        // Routes qui s'affichent par-dessus la barre de navigation.
         GoRoute(
           path: '/course-player',
           builder: (context, state) {
@@ -94,9 +78,6 @@ class AppRouter {
             return LessonViewerPage(lessonId: lessonId);
           },
         ),
-        // **ROUTE CORRIGÉE**
-        // La route pour que l'étudiant passe le quiz.
-        // On s'assure que le chemin est bien '/quiz/:id'.
         GoRoute(
           path: '/quiz/:id',
           builder: (context, state) {
@@ -104,7 +85,6 @@ class AppRouter {
             return QuizPage(lessonId: lessonId);
           },
         ),
-        // Routes pour l'espace instructeur.
         GoRoute(
           path: '/create-course',
           builder: (context, state) => const CreateCoursePage(),
@@ -139,12 +119,12 @@ class AppRouter {
             return LessonEditorPage(lessonId: lessonId, sectionId: sectionId);
           },
         ),
-        // La route pour que l'instructeur édite le quiz.
+        // MODIFICATION: La route prend maintenant un ID qui sera l'ID du quiz.
         GoRoute(
           path: '/quiz-editor/:id',
           builder: (context, state) {
-            final lessonId = int.parse(state.pathParameters['id']!);
-            return QuizEditorPage(lessonId: lessonId);
+            final quizId = int.parse(state.pathParameters['id']!);
+            return QuizEditorPage(quizId: quizId);
           },
         ),
         GoRoute(
@@ -155,9 +135,8 @@ class AppRouter {
           path: '/students',
           builder: (context, state) => const StudentsPage(),
           routes: [
-            // Route imbriquée pour les détails d'un étudiant.
             GoRoute(
-              path: ':id', // exemple: /students/123
+              path: ':id',
               builder: (context, state) {
                 final studentId = state.pathParameters['id']!;
                 return StudentDetailsPage(studentId: studentId);
@@ -169,21 +148,18 @@ class AppRouter {
           path: '/submissions',
           builder: (context, state) => const SubmissionsPage(),
         ),
-        // Routes d'authentification.
         GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
         GoRoute(
           path: '/register',
           builder: (context, state) => const RegisterPage(),
         ),
       ],
-      // Logique de redirection pour protéger les routes.
       redirect: (context, state) {
         final authState = authBloc.state;
         final loggedIn = authState.user.isNotEmpty;
         final isAccessingAuthPages =
             state.uri.path == '/login' || state.uri.path == '/register';
 
-        // Liste de toutes les routes qui nécessitent une authentification.
         const protectedRoutes = [
           '/my-courses',
           '/dashboard',
@@ -201,29 +177,21 @@ class AppRouter {
           '/submissions',
         ];
 
-        // Si l'utilisateur n'est pas connecté et essaie d'accéder à une page protégée,
-        // il est redirigé vers la page de connexion.
         if (!loggedIn &&
             protectedRoutes.any((route) => state.uri.path.startsWith(route))) {
           return '/login';
         }
 
-        // Si l'utilisateur est déjà connecté et essaie d'accéder aux pages de
-        // connexion ou d'inscription, il est redirigé vers son profil.
         if (loggedIn && isAccessingAuthPages) {
           return '/profile';
         }
 
-        // Aucune redirection nécessaire dans les autres cas.
         return null;
       },
     );
   }
 }
 
-/// Un `ChangeNotifier` qui écoute un `Stream` et notifie ses auditeurs à chaque
-/// nouvel événement. C'est le mécanisme qui permet à GoRouter de réagir aux
-// changements d'état (comme la connexion ou la déconnexion).
 class GoRouterRefreshStream extends ChangeNotifier {
   late final StreamSubscription<dynamic> _subscription;
 
