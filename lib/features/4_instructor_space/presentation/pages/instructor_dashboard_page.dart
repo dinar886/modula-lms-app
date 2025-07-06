@@ -1,89 +1,65 @@
+// lib/features/4_instructor_space/presentation/pages/instructor_dashboard_page.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:modula_lms/core/di/service_locator.dart';
-import 'package:modula_lms/features/1_auth/presentation/bloc/authentication_bloc.dart';
-import 'package:modula_lms/features/2_marketplace/presentation/widgets/course_card.dart';
-import 'package:modula_lms/features/3_learner_space/presentation/bloc/my_courses_bloc.dart';
-import 'package:modula_lms/features/3_learner_space/presentation/bloc/my_courses_event.dart';
-import 'package:modula_lms/features/3_learner_space/presentation/bloc/my_courses_state.dart';
 
 class InstructorDashboardPage extends StatelessWidget {
   const InstructorDashboardPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final instructorId = context.read<AuthenticationBloc>().state.user.id;
-    final myCoursesBloc = sl<MyCoursesBloc>()
-      ..add(FetchMyCourses(instructorId));
+    return Scaffold(
+      appBar: AppBar(title: const Text('Tableau de Bord Instructeur')),
+      body: GridView.count(
+        crossAxisCount: 2,
+        padding: const EdgeInsets.all(16.0),
+        crossAxisSpacing: 16.0,
+        mainAxisSpacing: 16.0,
+        children: [
+          _DashboardCard(
+            icon: Icons.school_outlined,
+            label: 'Mes Cours',
+            onTap: () => context.push('/instructor-courses'),
+          ),
+          _DashboardCard(
+            icon: Icons.people_outline,
+            label: 'Élèves',
+            onTap: () => context.push('/students'),
+          ),
+          _DashboardCard(
+            icon: Icons.assignment_turned_in_outlined,
+            label: 'Rendus',
+            onTap: () => context.push('/submissions'),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
-    return BlocProvider.value(
-      value: myCoursesBloc,
-      child: Scaffold(
-        appBar: AppBar(title: const Text('Tableau de Bord Instructeur')),
-        body: BlocBuilder<MyCoursesBloc, MyCoursesState>(
-          builder: (context, state) {
-            if (state is MyCoursesLoading) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (state is MyCoursesLoaded) {
-              if (state.courses.isEmpty) {
-                return const Center(
-                  child: Text(
-                    'Vous n\'avez encore créé aucun cours.',
-                    textAlign: TextAlign.center,
-                  ),
-                );
-              }
-              // Ajout du RefreshIndicator ici
-              return RefreshIndicator(
-                onRefresh: () async {
-                  myCoursesBloc.add(FetchMyCourses(instructorId));
-                },
-                child: ListView.builder(
-                  itemCount: state.courses.length,
-                  itemBuilder: (context, index) {
-                    final course = state.courses[index];
-                    return CourseCard(
-                      course: course,
-                      onTap: () async {
-                        // On attend un résultat après la navigation
-                        final result = await context.push(
-                          '/course-editor',
-                          extra: course,
-                        );
-                        // Si l'éditeur a renvoyé 'true', on rafraîchit
-                        if (result == true) {
-                          myCoursesBloc.add(FetchMyCourses(instructorId));
-                        }
-                      },
-                    );
-                  },
-                ),
-              );
-            }
-            if (state is MyCoursesError) {
-              return Center(
-                child: Text(
-                  state.message,
-                  style: const TextStyle(color: Colors.red),
-                ),
-              );
-            }
-            return const SizedBox.shrink();
-          },
-        ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () async {
-            // On attend un résultat après la navigation
-            final result = await context.push('/create-course');
-            // Si la page de création a renvoyé 'true', on rafraîchit
-            if (result == true) {
-              myCoursesBloc.add(FetchMyCourses(instructorId));
-            }
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('Créer un cours'),
+class _DashboardCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _DashboardCard({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 48.0, color: Theme.of(context).primaryColor),
+            const SizedBox(height: 16.0),
+            Text(label, style: Theme.of(context).textTheme.titleMedium),
+          ],
         ),
       ),
     );

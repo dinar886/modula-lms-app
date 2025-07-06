@@ -1,3 +1,4 @@
+// lib/app/config/routes/app_router.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -11,10 +12,13 @@ import 'package:modula_lms/features/2_marketplace/presentation/pages/course_deta
 import 'package:modula_lms/features/2_marketplace/presentation/pages/course_list_page.dart';
 import 'package:modula_lms/features/3_learner_space/presentation/pages/my_courses_page.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/pages/course_editor_page.dart';
-import 'package:modula_lms/features/4_instructor_space/presentation/pages/course_info_editor_page.dart'; // Ajout
+import 'package:modula_lms/features/4_instructor_space/presentation/pages/course_info_editor_page.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/pages/create_course_page.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/pages/instructor_courses_page.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/pages/lesson_editor_page.dart';
 import 'package:modula_lms/features/4_instructor_space/presentation/pages/quiz_editor_page.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/pages/students_page.dart';
+import 'package:modula_lms/features/4_instructor_space/presentation/pages/submissions_page.dart';
 import 'package:modula_lms/features/course_player/presentation/pages/course_player_page.dart';
 import 'package:modula_lms/features/course_player/presentation/pages/lesson_viewer_page.dart';
 import 'package:modula_lms/features/course_player/presentation/pages/quiz_page.dart';
@@ -29,7 +33,6 @@ class AppRouter {
       initialLocation: '/marketplace',
       refreshListenable: GoRouterRefreshStream(authBloc.stream),
       routes: [
-        // ... (autres routes inchangées)
         ShellRoute(
           builder: (context, state, child) => ScaffoldWithNavBar(child: child),
           routes: [
@@ -92,7 +95,6 @@ class AppRouter {
             return CourseEditorPage(course: course);
           },
         ),
-        // Nouvelle route pour l'éditeur d'informations
         GoRoute(
           path: '/course-info-editor',
           builder: (context, state) {
@@ -114,6 +116,18 @@ class AppRouter {
             return QuizEditorPage(lessonId: lessonId);
           },
         ),
+        GoRoute(
+          path: '/instructor-courses',
+          builder: (context, state) => const InstructorCoursesPage(),
+        ),
+        GoRoute(
+          path: '/students',
+          builder: (context, state) => const StudentsPage(),
+        ),
+        GoRoute(
+          path: '/submissions',
+          builder: (context, state) => const SubmissionsPage(),
+        ),
         GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
         GoRoute(
           path: '/register',
@@ -132,10 +146,13 @@ class AppRouter {
           '/lesson-viewer',
           '/create-course',
           '/course-editor',
-          '/course-info-editor', // Ajout de la nouvelle route protégée
+          '/course-info-editor',
           '/lesson-editor',
           '/quiz',
           '/quiz-editor',
+          '/instructor-courses',
+          '/students',
+          '/submissions',
         ];
 
         if (!loggedIn &&
