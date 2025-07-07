@@ -36,17 +36,16 @@ if (!empty($data->lesson_id) && isset($data->content_blocks)) {
 
         // Étape 2: Boucler sur les nouveaux blocs reçus pour les insérer.
         if (is_array($content_blocks)) {
-            // MODIFIÉ : La requête d'insertion inclut maintenant la colonne `metadata`.
+            // La requête d'insertion inclut maintenant la colonne `metadata`.
             $sql_insert = "INSERT INTO lesson_content_blocks (lesson_id, block_type, content, order_index, metadata) VALUES (?, ?, ?, ?, ?)";
             $stmt_insert = $conn->prepare($sql_insert);
 
             foreach ($content_blocks as $index => $block) {
-                // On s'assure que les données du bloc sont valides.
                 $block_type = $block->block_type ?? 'text';
                 $content = $block->content ?? '';
-                $order_index = $index; // L'ordre est déterminé par la position dans le tableau.
+                $order_index = $index;
 
-                // NOUVEAU : On encode l'objet `metadata` en chaîne JSON.
+                // On encode l'objet `metadata` en chaîne JSON.
                 // S'il n'existe pas, on insère NULL.
                 $metadata_json = isset($block->metadata) ? json_encode($block->metadata) : null;
                 

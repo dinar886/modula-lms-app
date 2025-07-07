@@ -25,17 +25,23 @@ import 'package:modula_lms/features/course_player/lesson_viewer_page.dart';
 import 'package:modula_lms/features/course_player/quiz_page.dart';
 import 'package:modula_lms/features/dashboard/presentation/pages/dashboard_page.dart';
 import 'package:modula_lms/features/shared/profile_page.dart';
-// NOUVEAU: Importation de la nouvelle page
+// Importation de la page du visualiseur PDF
 import 'package:modula_lms/features/shared/pdf_viewer_page.dart';
 
 class AppRouter {
+  // Cette méthode statique construit et configure l'instance de GoRouter.
   static GoRouter buildRouter(BuildContext context) {
+    // Le routeur a besoin d'accéder au BLoC d'authentification pour gérer les redirections.
     final authBloc = context.read<AuthenticationBloc>();
 
     return GoRouter(
+      // La route initiale de l'application.
       initialLocation: '/marketplace',
+      // Le routeur écoute les changements d'état du BLoC d'authentification pour se rafraîchir.
       refreshListenable: GoRouterRefreshStream(authBloc.stream),
+      // Définition de toutes les routes de l'application.
       routes: [
+        // ShellRoute définit l'interface principale avec la barre de navigation.
         ShellRoute(
           builder: (context, state, child) => ScaffoldWithNavBar(child: child),
           routes: [
@@ -80,14 +86,20 @@ class AppRouter {
             return LessonViewerPage(lessonId: lessonId);
           },
         ),
-        // NOUVEAU: Déclaration de la route pour le visualiseur PDF.
+        // CORRECTION APPLIQUÉE ICI
         GoRoute(
           path: '/pdf-viewer',
           builder: (context, state) {
-            // On s'attend à recevoir l'URL et le titre en paramètres 'extra'.
-            final params = state.extra as Map<String, String>;
-            final pdfUrl = params['url']!;
-            final title = params['title']!;
+            // Étape 1 : On s'attend à recevoir les paramètres dans `state.extra`.
+            // On le caste en `Map<String, dynamic>` pour être plus flexible.
+            final params = state.extra as Map<String, dynamic>;
+
+            // Étape 2 : On extrait les valeurs en s'assurant qu'elles sont bien des chaînes de caractères.
+            // Cela évite les erreurs de type si une valeur n'est pas une String.
+            final pdfUrl = params['url'] as String;
+            final title = params['title'] as String;
+
+            // Étape 3 : On passe les données à la page du visualiseur PDF.
             return PdfViewerPage(pdfUrl: pdfUrl, documentTitle: title);
           },
         ),
@@ -121,7 +133,6 @@ class AppRouter {
           builder: (context, state) {
             final lessonId = int.parse(state.pathParameters['lessonId']!);
             final sectionId = int.parse(state.pathParameters['sectionId']!);
-
             return LessonEditorPage(lessonId: lessonId, sectionId: sectionId);
           },
         ),
@@ -159,20 +170,21 @@ class AppRouter {
           builder: (context, state) => const RegisterPage(),
         ),
       ],
+      // Logique de redirection pour gérer l'authentification.
       redirect: (context, state) {
         final authState = authBloc.state;
         final loggedIn = authState.user.isNotEmpty;
         final isAccessingAuthPages =
             state.uri.path == '/login' || state.uri.path == '/register';
 
-        // On ajoute la nouvelle route à la liste des routes protégées.
+        // Liste des routes qui nécessitent que l'utilisateur soit connecté.
         const protectedRoutes = [
           '/my-courses',
           '/dashboard',
           '/profile',
           '/course-player',
           '/lesson-viewer',
-          '/pdf-viewer', // Ajout ici
+          '/pdf-viewer',
           '/quiz',
           '/create-course',
           '/course-editor',
@@ -184,21 +196,25 @@ class AppRouter {
           '/submissions',
         ];
 
+        // Si l'utilisateur n'est pas connecté et essaie d'accéder à une page protégée, on le redirige vers le login.
         if (!loggedIn &&
             protectedRoutes.any((route) => state.uri.path.startsWith(route))) {
           return '/login';
         }
 
+        // Si l'utilisateur est connecté et essaie d'aller sur les pages de login/register, on le redirige vers son profil.
         if (loggedIn && isAccessingAuthPages) {
           return '/profile';
         }
 
+        // Sinon, on ne fait rien.
         return null;
       },
     );
   }
 }
 
+// Cette classe permet à GoRouter de réagir aux changements d'état du BLoC d'authentification.
 class GoRouterRefreshStream extends ChangeNotifier {
   late final StreamSubscription<dynamic> _subscription;
 

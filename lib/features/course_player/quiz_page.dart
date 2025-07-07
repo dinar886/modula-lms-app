@@ -2,7 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
+import 'package:modula_lms/features/1_auth/auth_feature.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class QuizPage extends StatelessWidget {
   final int lessonId;
@@ -10,8 +12,10 @@ class QuizPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final userId = context.read<AuthenticationBloc>().state.user.id;
     return BlocProvider(
-      create: (context) => sl<QuizBloc>()..add(FetchQuiz(lessonId)),
+      create: (context) =>
+          sl<QuizBloc>()..add(FetchQuiz(lessonId: lessonId, studentId: userId)),
       child: BlocBuilder<QuizBloc, QuizState>(
         builder: (context, state) {
           return Scaffold(
@@ -23,12 +27,21 @@ class QuizPage extends StatelessWidget {
               ),
             ),
             body: _buildBody(context, state),
-            bottomNavigationBar: state.status == QuizStatus.loaded
+            bottomNavigationBar:
+                (state.status == QuizStatus.loaded && state.canAttemptQuiz)
                 ? Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: FilledButton(
-                      onPressed: () =>
-                          context.read<QuizBloc>().add(SubmitQuiz()),
+                      onPressed: () {
+                        final studentId = context
+                            .read<AuthenticationBloc>()
+                            .state
+                            .user
+                            .id;
+                        context.read<QuizBloc>().add(
+                          SubmitQuiz(studentId: studentId, lessonId: lessonId),
+                        );
+                      },
                       child: const Text('Soumettre le Quiz'),
                     ),
                   )
@@ -46,6 +59,18 @@ class QuizPage extends StatelessWidget {
         return const Center(child: CircularProgressIndicator());
 
       case QuizStatus.loaded:
+        if (!state.canAttemptQuiz) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text(
+                'Vous avez déjà effectué le nombre maximum de tentatives pour ce quiz.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+          );
+        }
         return ListView.builder(
           padding: const EdgeInsets.all(8),
           itemCount: state.quiz.questions.length,

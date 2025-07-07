@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/2_marketplace/marketplace_logic.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class CoursePlayerPage extends StatelessWidget {
   final CourseEntity course;
@@ -34,15 +35,31 @@ class CoursePlayerPage extends StatelessWidget {
                     ),
                     initiallyExpanded: index == 0,
                     children: section.lessons.map((lesson) {
-                      return ListTile(
-                        leading: Icon(_getIconForLessonType(lesson.lessonType)),
-                        title: Text(lesson.title),
-                        onTap: () {
-                          if (lesson.lessonType == LessonType.quiz) {
-                            context.push('/quiz/${lesson.id}');
-                          } else {
-                            context.push('/lesson-viewer/${lesson.id}');
-                          }
+                      return FutureBuilder<bool>(
+                        future: _isQuizCompleted(lesson.id),
+                        builder: (context, snapshot) {
+                          final isCompleted = snapshot.data ?? false;
+                          return ListTile(
+                            leading: Icon(
+                              _getIconForLessonType(lesson.lessonType),
+                            ),
+                            title: Text(lesson.title),
+                            trailing:
+                                lesson.lessonType == LessonType.quiz &&
+                                    isCompleted
+                                ? const Icon(
+                                    Icons.check_circle,
+                                    color: Colors.green,
+                                  )
+                                : null,
+                            onTap: () {
+                              if (lesson.lessonType == LessonType.quiz) {
+                                context.push('/quiz/${lesson.id}');
+                              } else {
+                                context.push('/lesson-viewer/${lesson.id}');
+                              }
+                            },
+                          );
                         },
                       );
                     }).toList(),
@@ -63,6 +80,11 @@ class CoursePlayerPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<bool> _isQuizCompleted(int lessonId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('quiz_completed_$lessonId') ?? false;
   }
 
   IconData _getIconForLessonType(LessonType type) {

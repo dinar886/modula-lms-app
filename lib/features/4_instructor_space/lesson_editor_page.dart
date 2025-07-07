@@ -196,7 +196,6 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
         });
   }
 
-  // CORRECTION : Ajout de blocs avec des contenus vides.
   void _showAddBlockMenu(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -211,7 +210,7 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
                 _addBlock(
                   context,
                   ContentBlockType.text,
-                  '', // Contenu vide
+                  '',
                   metadata: {'style': 'paragraph'},
                 );
               },
@@ -229,7 +228,7 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
               title: const Text('Vidéo (URL)'),
               onTap: () {
                 Navigator.pop(builderContext);
-                _addBlock(context, ContentBlockType.video, ''); // Contenu vide
+                _addBlock(context, ContentBlockType.video, '');
               },
             ),
             ListTile(
@@ -250,6 +249,7 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
                   context,
                   ContentBlockType.quiz,
                   '0',
+                  metadata: {'max_attempts': -1}, // -1 pour infini par défaut
                   uploadStatus: UploadStatus.uploading,
                 );
               },
@@ -477,7 +477,6 @@ class _ContentBlockEditor extends StatelessWidget {
     );
   }
 
-  // CORRECTION : Ajout de hintText dans les champs de texte.
   Widget _buildSpecificEditor(BuildContext context) {
     switch (block.blockType) {
       case ContentBlockType.text:
@@ -485,20 +484,13 @@ class _ContentBlockEditor extends StatelessWidget {
       case ContentBlockType.image:
         return _buildImageEditor(context);
       case ContentBlockType.quiz:
-        return ListTile(
-          leading: const Icon(Icons.quiz, color: Colors.deepPurple),
-          title: Text(quizTitle ?? 'Chargement du titre...'),
-          subtitle: Text('Quiz ID: ${block.content}'),
-          trailing: const Icon(Icons.edit_outlined),
-          onTap: onEditQuiz,
-        );
+        return _buildQuizEditor(context);
       case ContentBlockType.video:
         return TextFormField(
           initialValue: block.content,
           onChanged: onContentChanged,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
-            // Texte indicatif
             hintText: 'Collez l\'URL de la vidéo (YouTube, Vimeo...).',
           ),
           maxLines: 1,
@@ -512,6 +504,46 @@ class _ContentBlockEditor extends StatelessWidget {
       default:
         return const SizedBox.shrink();
     }
+  }
+
+  Widget _buildQuizEditor(BuildContext context) {
+    // La valeur est -1 pour "Infini", 0 pour "Non refaisable", 1, 2, 3...
+    int maxAttempts = (block.metadata['max_attempts'] as num?)?.toInt() ?? -1;
+
+    return Column(
+      children: [
+        ListTile(
+          leading: const Icon(Icons.quiz, color: Colors.deepPurple),
+          title: Text(quizTitle ?? 'Chargement du titre...'),
+          subtitle: Text('Quiz ID: ${block.content}'),
+          trailing: const Icon(Icons.edit_outlined),
+          onTap: onEditQuiz,
+        ),
+        const SizedBox(height: 16),
+        DropdownButtonFormField<int>(
+          value: maxAttempts,
+          decoration: const InputDecoration(
+            labelText: 'Nombre de tentatives autorisées',
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem(value: -1, child: Text('Infini')),
+            DropdownMenuItem(
+              value: 0,
+              child: Text('Une seule fois (non refaisable)'),
+            ),
+            DropdownMenuItem(value: 1, child: Text('1 fois')),
+            DropdownMenuItem(value: 2, child: Text('2 fois')),
+            DropdownMenuItem(value: 3, child: Text('3 fois')),
+          ],
+          onChanged: (value) {
+            if (value != null) {
+              onMetadataChanged({'max_attempts': value});
+            }
+          },
+        ),
+      ],
+    );
   }
 
   Widget _buildTextEditor() {
@@ -538,7 +570,6 @@ class _ContentBlockEditor extends StatelessWidget {
           onChanged: onContentChanged,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
-            // Texte indicatif
             hintText: 'Saisissez votre texte ici. Syntaxe Markdown supportée.',
           ),
           maxLines: null,
