@@ -5,10 +5,9 @@ import 'package:modula_lms/core/api/api_client.dart';
 import 'dart:convert';
 
 //==============================================================================
-// ENTITIES
+// ENTITIES (Aucun changement dans les entités)
 //==============================================================================
 
-// --- Section Entity ---
 class SectionEntity extends Equatable {
   final int id;
   final String title;
@@ -24,20 +23,18 @@ class SectionEntity extends Equatable {
   List<Object?> get props => [id, title, lessons];
 }
 
-// --- Énumérations pour les Blocs de Contenu ---
 enum UploadStatus { uploading, completed, failed }
 
-// MODIFICATION: Ajout du type 'quiz'.
 enum ContentBlockType { text, video, image, document, quiz, unknown }
 
-// --- Entité pour un Bloc de Contenu ---
 class ContentBlockEntity extends Equatable {
-  final int id; // Vient de la BDD, 0 pour les nouveaux blocs
-  final String localId; // ID unique temporaire généré dans l'UI
+  final int id;
+  final String localId;
   final ContentBlockType blockType;
   final String content;
   final int orderIndex;
-  final UploadStatus uploadStatus; // Statut du téléversement
+  final UploadStatus uploadStatus;
+  final Map<String, dynamic> metadata;
 
   const ContentBlockEntity({
     required this.id,
@@ -46,27 +43,28 @@ class ContentBlockEntity extends Equatable {
     required this.content,
     required this.orderIndex,
     this.uploadStatus = UploadStatus.completed,
+    this.metadata = const {},
   });
 
-  // Factory pour créer un bloc depuis un JSON reçu de l'API.
   factory ContentBlockEntity.fromJson(Map<String, dynamic> json) {
     return ContentBlockEntity(
       id: json['id'],
-      localId: json['id']
-          .toString(), // On peut utiliser l'ID de la BDD comme ID local
+      localId: json['id'].toString(),
       blockType: _blockTypeFromString(json['block_type']),
       content: json['content'],
       orderIndex: json['order_index'],
+      metadata: json['metadata'] != null
+          ? Map<String, dynamic>.from(json['metadata'])
+          : {},
     );
   }
 
-  // Méthode pour convertir l'entité en JSON avant de l'envoyer à l'API.
   Map<String, dynamic> toJson() {
     return {
-      // On n'envoie pas l'ID car la BDD le gère (sauf si on voulait éditer)
       'block_type': blockType.name,
       'content': content,
       'order_index': orderIndex,
+      'metadata': metadata,
     };
   }
 
@@ -77,6 +75,7 @@ class ContentBlockEntity extends Equatable {
     String? content,
     int? orderIndex,
     UploadStatus? uploadStatus,
+    Map<String, dynamic>? metadata,
   }) {
     return ContentBlockEntity(
       id: id ?? this.id,
@@ -85,10 +84,10 @@ class ContentBlockEntity extends Equatable {
       content: content ?? this.content,
       orderIndex: orderIndex ?? this.orderIndex,
       uploadStatus: uploadStatus ?? this.uploadStatus,
+      metadata: metadata ?? this.metadata,
     );
   }
 
-  // Helper pour convertir une chaîne en ContentBlockType.
   static ContentBlockType _blockTypeFromString(String type) {
     return ContentBlockType.values.firstWhere(
       (e) => e.name == type,
@@ -104,13 +103,12 @@ class ContentBlockEntity extends Equatable {
     content,
     orderIndex,
     uploadStatus,
+    metadata,
   ];
 }
 
-// --- Énumération pour les types de leçons ---
 enum LessonType { video, text, document, quiz, devoir, evaluation, unknown }
 
-// --- Entité pour une Leçon ---
 class LessonEntity extends Equatable {
   final int id;
   final String title;
@@ -165,7 +163,6 @@ class LessonEntity extends Equatable {
   List<Object?> get props => [id, title, lessonType, contentBlocks];
 }
 
-// --- Entité pour une Réponse ---
 class AnswerEntity extends Equatable {
   final int id;
   final String text;
@@ -181,16 +178,13 @@ class AnswerEntity extends Equatable {
     return AnswerEntity(
       id: json['id'],
       text: json['answer_text'],
-      // PHP renvoie 0 ou 1, on convertit en booléen.
       isCorrect: json['is_correct'] == 1 || json['is_correct'] == true,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'id': id > 1000000000
-          ? 0
-          : id, // Si c'est un ID local (timestamp), on l'envoie comme 0
+      'id': id > 1000000000 ? 0 : id,
       'answer_text': text,
       'is_correct': isCorrect,
     };
@@ -208,7 +202,6 @@ class AnswerEntity extends Equatable {
   List<Object?> get props => [id, text, isCorrect];
 }
 
-// --- Entité pour une Question ---
 class QuestionEntity extends Equatable {
   final int id;
   final String text;
@@ -232,9 +225,7 @@ class QuestionEntity extends Equatable {
 
   Map<String, dynamic> toJson() {
     return {
-      'id': id > 1000000000
-          ? 0
-          : id, // Si c'est un ID local, on l'envoie comme 0
+      'id': id > 1000000000 ? 0 : id,
       'question_text': text,
       'answers': answers.map((a) => a.toJson()).toList(),
     };
@@ -256,7 +247,6 @@ class QuestionEntity extends Equatable {
   List<Object?> get props => [id, text, answers];
 }
 
-// --- Entité pour un Quiz ---
 class QuizEntity extends Equatable {
   final int id;
   final String title;
@@ -309,10 +299,8 @@ class QuizEntity extends Equatable {
 }
 
 //==============================================================================
-// COURSE CONTENT BLOC
+// COURSE CONTENT BLOC (Inchangé)
 //==============================================================================
-
-// --- Events ---
 abstract class CourseContentEvent extends Equatable {
   const CourseContentEvent();
   @override
@@ -324,7 +312,6 @@ class FetchCourseContent extends CourseContentEvent {
   const FetchCourseContent(this.courseId);
 }
 
-// --- States ---
 abstract class CourseContentState extends Equatable {
   const CourseContentState();
   @override
@@ -345,7 +332,6 @@ class CourseContentError extends CourseContentState {
   const CourseContentError(this.message);
 }
 
-// --- Bloc ---
 class CourseContentBloc extends Bloc<CourseContentEvent, CourseContentState> {
   final ApiClient apiClient;
 
@@ -388,10 +374,9 @@ class CourseContentBloc extends Bloc<CourseContentEvent, CourseContentState> {
 }
 
 //==============================================================================
-// LESSON DETAIL BLOC
+// LESSON DETAIL BLOC (Inchangé)
 //==============================================================================
 
-// --- Events ---
 abstract class LessonDetailEvent extends Equatable {
   const LessonDetailEvent();
   @override
@@ -403,7 +388,6 @@ class FetchLessonDetails extends LessonDetailEvent {
   const FetchLessonDetails(this.lessonId);
 }
 
-// --- States ---
 abstract class LessonDetailState extends Equatable {
   const LessonDetailState();
   @override
@@ -424,7 +408,6 @@ class LessonDetailError extends LessonDetailState {
   const LessonDetailError(this.message);
 }
 
-// --- Bloc ---
 class LessonDetailBloc extends Bloc<LessonDetailEvent, LessonDetailState> {
   final ApiClient apiClient;
 
@@ -456,11 +439,10 @@ abstract class QuizEvent extends Equatable {
   List<Object> get props => [];
 }
 
+// MODIFIÉ : L'événement prend maintenant l'ID du quiz.
 class FetchQuiz extends QuizEvent {
-  // MODIFICATION: Ce BLoC est pour l'affichage du quiz côté étudiant.
-  // Il continuera de fonctionner avec le lessonId.
-  final int lessonId;
-  const FetchQuiz(this.lessonId);
+  final int quizId;
+  const FetchQuiz(this.quizId);
 }
 
 class AnswerSelected extends QuizEvent {
@@ -471,7 +453,7 @@ class AnswerSelected extends QuizEvent {
 
 class SubmitQuiz extends QuizEvent {}
 
-// --- States ---
+// --- States (inchangés) ---
 enum QuizStatus { initial, loading, loaded, submitted, failure }
 
 class QuizState extends Equatable {
@@ -519,17 +501,14 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
     on<SubmitQuiz>(_onSubmitQuiz);
   }
 
+  // MODIFIÉ : Utilise maintenant quizId pour l'appel API.
   Future<void> _onFetchQuiz(FetchQuiz event, Emitter<QuizState> emit) async {
     emit(state.copyWith(status: QuizStatus.loading));
     try {
-      // Le script get_quiz_details prend maintenant un quiz_id.
-      // Côté étudiant, on ne connaît que le lesson_id. Le backend doit donc
-      // trouver le quiz_id à partir du lesson_id.
-      // Pour l'instant, nous supposons que le backend a été adapté pour
-      // faire cette recherche.
+      // L'appel API utilise maintenant 'quiz_id'
       final response = await apiClient.get(
         '/api/v1/get_quiz_details.php',
-        queryParameters: {'lesson_id': event.lessonId},
+        queryParameters: {'quiz_id': event.quizId},
       );
       final quiz = QuizEntity.fromJson(response.data);
       emit(state.copyWith(status: QuizStatus.loaded, quiz: quiz));

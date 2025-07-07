@@ -41,6 +41,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
           return BlocListener<CourseEditorBloc, CourseEditorState>(
             listener: (context, state) {
               if (state is CourseEditorSuccess) {
+                // Rafraîchit le contenu du cours après une opération réussie
                 context.read<CourseContentBloc>().add(
                   FetchCourseContent(_currentCourse.id),
                 );
@@ -68,11 +69,13 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                     icon: const Icon(Icons.edit_note),
                     tooltip: 'Modifier les informations du cours',
                     onPressed: () async {
+                      // Ouvre la page d'édition des métadonnées du cours
                       final updatedCourse = await context.push<CourseEntity>(
                         '/course-info-editor',
                         extra: _currentCourse,
                       );
 
+                      // Met à jour l'état si des changements ont été faits
                       if (updatedCourse != null && mounted) {
                         setState(() {
                           _currentCourse = updatedCourse;
@@ -91,6 +94,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                     return const Center(child: CircularProgressIndicator());
                   }
                   if (state is CourseContentLoaded) {
+                    // Construit la liste des sections et leçons
                     return ListView.builder(
                       itemCount: state.sections.length,
                       itemBuilder: (context, index) {
@@ -101,12 +105,14 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                             vertical: 4,
                           ),
                           child: ExpansionTile(
+                            // Titre de la section
                             title: Text(
                               section.title,
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
+                            // Menu pour la section (modifier, supprimer, etc.)
                             trailing: PopupMenuButton<String>(
                               onSelected: (value) {
                                 final courseEditorBloc = context
@@ -155,37 +161,44 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                                     ),
                                   ],
                             ),
+                            // Liste des leçons dans la section
                             children: section.lessons.map((lesson) {
                               return ListTile(
                                 leading: Icon(
                                   _getIconForLessonType(lesson.lessonType),
                                 ),
                                 title: Text(lesson.title),
+                                // Un clic simple ouvre l'éditeur de contenu de la leçon
                                 onTap: () {
-                                  // La navigation vers l'éditeur de leçon est maintenant la même pour tous les types.
-                                  // La distinction de contenu se fait à l'intérieur de l'éditeur.
                                   context.push(
-                                    '/lesson-editor/${lesson.id}',
-                                    extra: section.id,
+                                    '/lesson-editor/${lesson.id}/section/${section.id}',
                                   );
                                 },
+                                // --- MODIFICATION ICI ---
+                                // Menu pour chaque leçon (modifier, supprimer, et maintenant aperçu)
                                 trailing: PopupMenuButton<String>(
                                   onSelected: (value) {
-                                    final courseEditorBloc = context
-                                        .read<CourseEditorBloc>();
-                                    if (value == 'edit') {
+                                    if (value == 'edit_name') {
+                                      // Logique pour modifier le nom de la leçon
                                       _showEditLessonDialog(
                                         context,
                                         lesson.id,
                                         lesson.title,
-                                        courseEditorBloc,
+                                        context.read<CourseEditorBloc>(),
+                                      );
+                                      // NOUVEAU: Gère le clic sur "Voir l'aperçu"
+                                    } else if (value == 'preview') {
+                                      // Navigue vers la page de visualisation de la leçon
+                                      context.push(
+                                        '/lesson-viewer/${lesson.id}',
                                       );
                                     } else if (value == 'delete') {
+                                      // Logique pour supprimer la leçon
                                       _showDeleteConfirmationDialog(
                                         context,
                                         'Supprimer la leçon ?',
                                         () {
-                                          courseEditorBloc.add(
+                                          context.read<CourseEditorBloc>().add(
                                             DeleteLesson(lesson.id),
                                           );
                                         },
@@ -194,10 +207,18 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                                   },
                                   itemBuilder: (BuildContext context) =>
                                       <PopupMenuEntry<String>>[
+                                        // Option pour modifier le nom
                                         const PopupMenuItem<String>(
-                                          value: 'edit',
+                                          value: 'edit_name',
                                           child: Text('Modifier le nom'),
                                         ),
+                                        // NOUVEAU: Option pour voir l'aperçu
+                                        const PopupMenuItem<String>(
+                                          value: 'preview',
+                                          child: Text("Voir l'aperçu"),
+                                        ),
+                                        const PopupMenuDivider(),
+                                        // Option pour supprimer
                                         const PopupMenuItem<String>(
                                           value: 'delete',
                                           child: Text(
@@ -243,6 +264,8 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
       ),
     );
   }
+
+  // --- Fonctions de dialogue (inchangées) ---
 
   void _showAddSectionDialog(
     BuildContext context,
@@ -303,12 +326,11 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
           FilledButton(
             onPressed: () {
               if (titleController.text.isNotEmpty) {
-                // MODIFICATION: On ne demande plus le type. On envoie 'text' par défaut.
                 courseEditorBloc.add(
                   AddLesson(
                     title: titleController.text,
                     sectionId: sectionId,
-                    lessonType: 'text',
+                    lessonType: 'text', // Type par défaut
                   ),
                 );
                 Navigator.pop(dialogContext);

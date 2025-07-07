@@ -31,6 +31,8 @@ dependencies:
   intl: ^0.20.2
   file_picker: ^10.2.0
   youtube_player_flutter: ^9.1.1
+  flutter_pdfview: ^1.4.1+1
+  share_plus: ^11.0.0
 
 dev_dependencies:
   flutter_test:

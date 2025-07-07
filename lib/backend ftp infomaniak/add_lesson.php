@@ -11,10 +11,10 @@ require_once 'config.php';
 $data = json_decode(file_get_contents("php://input"));
 
 // Vérifie que les données nécessaires sont présentes.
+// Le type de leçon n'est plus requis ici, on le force à 'text' par défaut.
 if (
     !empty($data->title) &&
-    !empty($data->section_id) &&
-    !empty($data->lesson_type)
+    !empty($data->section_id)
 ) {
     $conn = new mysqli($servername, $username, $password, $dbname);
 
@@ -24,14 +24,13 @@ if (
         exit();
     }
 
-    // On démarre une "transaction". Cela garantit que soit TOUTES les requêtes réussissent,
-    // soit aucune n'est appliquée. C'est plus sûr.
     $conn->begin_transaction();
 
     try {
         $title = $conn->real_escape_string($data->title);
         $section_id = (int)$data->section_id;
-        $lesson_type = $conn->real_escape_string($data->lesson_type);
+        // MODIFICATION: On force le type à 'text', car la leçon est maintenant un conteneur générique.
+        $lesson_type = 'text'; 
 
         // Détermine le prochain 'order_index' pour la nouvelle leçon.
         $order_sql = "SELECT MAX(order_index) as max_order FROM lessons WHERE section_id = ?";
@@ -43,38 +42,22 @@ if (
         $next_order_index = ($row['max_order'] ?? 0) + 1;
         $order_stmt->close();
 
-        // Étape 1 : On insère la nouvelle leçon dans la table 'lessons'.
+        // On insère la nouvelle leçon dans la table 'lessons'.
         $sql = "INSERT INTO lessons (section_id, title, lesson_type, order_index) VALUES (?, ?, ?, ?)";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("issi", $section_id, $title, $lesson_type, $next_order_index);
         $stmt->execute();
         
-        // On récupère l'ID de la leçon que l'on vient de créer.
-        $new_lesson_id = $conn->insert_id;
         $stmt->close();
 
-        // **LA CORRECTION EST ICI**
-        // Étape 2 : Si la leçon est de type 'quiz', on crée aussi une entrée dans la table 'quizzes'.
-        if ($lesson_type === 'quiz') {
-            // On crée un titre et une description par défaut pour le quiz.
-            $quiz_title = "Quiz : " . $title;
-            $quiz_description = "Testez vos connaissances sur la leçon '" . $title . "'.";
-            
-            $quiz_sql = "INSERT INTO quizzes (lesson_id, title, description) VALUES (?, ?, ?)";
-            $quiz_stmt = $conn->prepare($quiz_sql);
-            $quiz_stmt->bind_param("iss", $new_lesson_id, $quiz_title, $quiz_description);
-            $quiz_stmt->execute();
-            $quiz_stmt->close();
-        }
-
-        // Si tout s'est bien passé, on valide la transaction.
+        // SUPPRESSION: La logique qui créait un quiz en même temps que la leçon a été retirée.
+        
         $conn->commit();
 
         http_response_code(201); // Created
         echo json_encode(["message" => "Leçon créée avec succès."]);
 
     } catch (mysqli_sql_exception $exception) {
-        // Si une erreur survient, on annule toutes les opérations.
         $conn->rollback();
         
         http_response_code(500);

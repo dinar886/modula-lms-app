@@ -6,8 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
-// CORRECTION : On importe 'course_player_logic.dart' mais on masque la classe 'FetchLessonDetails'
-// pour éviter le conflit de nom avec celle définie dans 'instructor_space_logic.dart'.
 import 'package:modula_lms/features/course_player/course_player_logic.dart'
     hide FetchLessonDetails;
 import 'package:modula_lms/features/4_instructor_space/instructor_space_logic.dart';
@@ -27,15 +25,13 @@ class LessonEditorPage extends StatefulWidget {
 }
 
 class _LessonEditorPageState extends State<LessonEditorPage> {
-  // Map pour garder en mémoire les titres des quiz et éviter les appels API répétitifs
   final Map<int, String> _quizTitles = {};
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (context) => sl<LessonEditorBloc>()
-        // Cette ligne fonctionne maintenant car il n'y a plus d'ambiguïté sur 'FetchLessonDetails'
-        ..add(FetchLessonDetails(widget.lessonId)),
+      create: (context) =>
+          sl<LessonEditorBloc>()..add(FetchLessonDetails(widget.lessonId)),
       child: BlocConsumer<LessonEditorBloc, LessonEditorState>(
         listenWhen: (previous, current) =>
             previous.status != current.status ||
@@ -114,13 +110,12 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
       return Center(child: Text(state.error));
     }
 
-    return ListView.builder(
+    return ReorderableListView.builder(
       padding: const EdgeInsets.all(8.0).copyWith(bottom: 80),
       itemCount: state.lesson.contentBlocks.length,
       itemBuilder: (context, index) {
         final block = state.lesson.contentBlocks[index];
 
-        // Pour les blocs de quiz, on s'assure d'avoir le titre.
         if (block.blockType == ContentBlockType.quiz &&
             int.tryParse(block.content) != null &&
             int.parse(block.content) > 0) {
@@ -132,18 +127,19 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
           block: block,
           quizTitle: _quizTitles[int.tryParse(block.content)],
           onContentChanged: (newContent) {
-            _updateBlockContent(context, index, newContent);
+            _updateBlockMetadata(context, index, {'content': newContent});
+          },
+          onMetadataChanged: (newMetadata) {
+            _updateBlockMetadata(context, index, newMetadata);
           },
           onDelete: () {
             _deleteBlock(context, index);
           },
           onEditQuiz: () async {
             final quizId = int.tryParse(block.content) ?? 0;
-            // On navigue vers l'éditeur de quiz et on attend le nouvel ID en retour.
             final savedQuizId = await context.push<int>('/quiz-editor/$quizId');
 
             if (savedQuizId != null && mounted) {
-              // On met à jour le bloc avec l'ID du quiz sauvegardé.
               context.read<LessonEditorBloc>().add(
                 UpdateQuizBlock(
                   localBlockId: block.localId,
@@ -154,14 +150,38 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
           },
         );
       },
+      onReorder: (oldIndex, newIndex) {
+        if (newIndex > oldIndex) {
+          newIndex -= 1;
+        }
+        final bloc = context.read<LessonEditorBloc>();
+        final currentState = bloc.state;
+        final blocks = List<ContentBlockEntity>.from(
+          currentState.lesson.contentBlocks,
+        );
+        final movedBlock = blocks.removeAt(oldIndex);
+        blocks.insert(newIndex, movedBlock);
+
+        final reorderedBlocks = blocks
+            .asMap()
+            .entries
+            .map((e) => e.value.copyWith(orderIndex: e.key))
+            .toList();
+
+        bloc.add(
+          LessonContentChanged(
+            lesson: currentState.lesson.copyWith(
+              contentBlocks: reorderedBlocks,
+            ),
+          ),
+        );
+      },
     );
   }
 
-  // Helper pour récupérer le titre d'un quiz et le mettre en cache
   void _fetchQuizTitle(BuildContext context, int quizId) {
-    if (_quizTitles.containsKey(quizId)) return; // Déjà en cache
+    if (_quizTitles.containsKey(quizId)) return;
 
-    // On crée un BLoC temporaire juste pour récupérer les détails du quiz.
     final quizEditorBloc = sl<QuizEditorBloc>();
     quizEditorBloc.add(FetchQuizForEditing(quizId));
     quizEditorBloc.stream
@@ -190,16 +210,9 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
                 _addBlock(
                   context,
                   ContentBlockType.text,
-                  'Nouveau bloc de texte...',
+                  'Nouveau texte...',
+                  metadata: {'style': 'paragraph'},
                 );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.videocam_outlined),
-              title: const Text('Vidéo (URL)'),
-              onTap: () {
-                Navigator.pop(builderContext);
-                _addBlock(context, ContentBlockType.video, 'https://');
               },
             ),
             ListTile(
@@ -211,6 +224,14 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.videocam_outlined),
+              title: const Text('Vidéo (URL)'),
+              onTap: () {
+                Navigator.pop(builderContext);
+                _addBlock(context, ContentBlockType.video, 'https://');
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.picture_as_pdf_outlined),
               title: const Text('Document (Téléverser)'),
               onTap: () {
@@ -218,7 +239,6 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
                 _pickAndUploadFile(context, ContentBlockType.document);
               },
             ),
-            // MODIFICATION: Ajout de l'option pour créer un Quiz.
             const Divider(),
             ListTile(
               leading: const Icon(Icons.quiz_outlined),
@@ -228,8 +248,7 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
                 _addBlock(
                   context,
                   ContentBlockType.quiz,
-                  '0', // On initialise le contenu avec '0' pour un nouveau quiz.
-                  // On met le statut à 'uploading' pour indiquer qu'il n'est pas encore sauvegardé.
+                  '0',
                   uploadStatus: UploadStatus.uploading,
                 );
               },
@@ -267,6 +286,9 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
         '',
         uploadStatus: UploadStatus.uploading,
         localId: localId,
+        metadata: type == ContentBlockType.image
+            ? {'width': 100.0, 'alignment': 'center'}
+            : {},
       );
 
       bloc.add(
@@ -285,6 +307,7 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
     String initialContent, {
     UploadStatus uploadStatus = UploadStatus.completed,
     String? localId,
+    Map<String, dynamic> metadata = const {},
   }) {
     final bloc = context.read<LessonEditorBloc>();
     final currentState = bloc.state;
@@ -296,6 +319,7 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
       content: initialContent,
       orderIndex: currentState.lesson.contentBlocks.length,
       uploadStatus: uploadStatus,
+      metadata: metadata,
     );
 
     final updatedBlocks = List<ContentBlockEntity>.from(
@@ -308,20 +332,29 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
     );
   }
 
-  void _updateBlockContent(
+  void _updateBlockMetadata(
     BuildContext context,
     int blockIndex,
-    String newContent,
+    Map<String, dynamic> newMetadata,
   ) {
     final bloc = context.read<LessonEditorBloc>();
     final currentState = bloc.state;
-
     final updatedBlocks = List<ContentBlockEntity>.from(
       currentState.lesson.contentBlocks,
     );
     final oldBlock = updatedBlocks[blockIndex];
 
-    updatedBlocks[blockIndex] = oldBlock.copyWith(content: newContent);
+    final content = newMetadata.containsKey('content')
+        ? newMetadata['content']
+        : oldBlock.content;
+
+    final updatedMetadata = Map<String, dynamic>.from(oldBlock.metadata)
+      ..addAll(newMetadata);
+
+    updatedBlocks[blockIndex] = oldBlock.copyWith(
+      content: content,
+      metadata: updatedMetadata,
+    );
 
     bloc.add(
       LessonContentChanged(
@@ -348,14 +381,16 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
 class _ContentBlockEditor extends StatelessWidget {
   final ContentBlockEntity block;
   final ValueChanged<String> onContentChanged;
+  final ValueChanged<Map<String, dynamic>> onMetadataChanged;
   final VoidCallback onDelete;
-  final VoidCallback? onEditQuiz; // Callback pour éditer un quiz.
-  final String? quizTitle; // Titre du quiz à afficher.
+  final VoidCallback? onEditQuiz;
+  final String? quizTitle;
 
   const _ContentBlockEditor({
     super.key,
     required this.block,
     required this.onContentChanged,
+    required this.onMetadataChanged,
     required this.onDelete,
     this.onEditQuiz,
     this.quizTitle,
@@ -364,7 +399,6 @@ class _ContentBlockEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (block.uploadStatus == UploadStatus.uploading) {
-      // MODIFICATION: Affichage différent pour un quiz en cours de création.
       if (block.blockType == ContentBlockType.quiz) {
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 8.0),
@@ -389,7 +423,6 @@ class _ContentBlockEditor extends StatelessWidget {
         ),
       );
     }
-
     if (block.uploadStatus == UploadStatus.failed) {
       return Card(
         margin: const EdgeInsets.symmetric(vertical: 8.0),
@@ -415,11 +448,19 @@ class _ContentBlockEditor extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  _getBlockTitle(block.blockType),
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(color: Colors.grey.shade600),
+                Row(
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8.0),
+                      child: Icon(Icons.drag_handle, color: Colors.grey),
+                    ),
+                    Text(
+                      _getBlockTitle(block.blockType),
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.red),
@@ -429,39 +470,122 @@ class _ContentBlockEditor extends StatelessWidget {
             ),
             const SizedBox(height: 8),
 
-            // Contenu spécifique pour chaque type de bloc
-            if (block.blockType == ContentBlockType.image)
-              Image.network(block.content, height: 150, fit: BoxFit.cover),
-            if (block.blockType == ContentBlockType.document)
-              const ListTile(
-                leading: Icon(Icons.picture_as_pdf),
-                title: Text("Document PDF"),
-                subtitle: Text("Prêt à être sauvegardé."),
-              ),
-            // MODIFICATION: Widget pour afficher le bloc Quiz.
-            if (block.blockType == ContentBlockType.quiz)
-              ListTile(
-                leading: const Icon(Icons.quiz, color: Colors.deepPurple),
-                title: Text(quizTitle ?? 'Chargement du titre...'),
-                subtitle: Text('Quiz ID: ${block.content}'),
-                trailing: const Icon(Icons.edit_outlined),
-                onTap: onEditQuiz,
-              ),
-
-            if (block.blockType == ContentBlockType.text ||
-                block.blockType == ContentBlockType.video)
-              TextFormField(
-                initialValue: block.content,
-                onChanged: onContentChanged,
-                decoration: InputDecoration(
-                  border: const OutlineInputBorder(),
-                  helperText: _getHelperText(block.blockType),
-                ),
-                maxLines: block.blockType == ContentBlockType.text ? null : 1,
-              ),
+            _buildSpecificEditor(context),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSpecificEditor(BuildContext context) {
+    switch (block.blockType) {
+      case ContentBlockType.text:
+        return _buildTextEditor();
+      case ContentBlockType.image:
+        return _buildImageEditor(context);
+      case ContentBlockType.quiz:
+        return ListTile(
+          leading: const Icon(Icons.quiz, color: Colors.deepPurple),
+          title: Text(quizTitle ?? 'Chargement du titre...'),
+          subtitle: Text('Quiz ID: ${block.content}'),
+          trailing: const Icon(Icons.edit_outlined),
+          onTap: onEditQuiz,
+        );
+      case ContentBlockType.video:
+        return TextFormField(
+          initialValue: block.content,
+          onChanged: onContentChanged,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            helperText: 'URL de la vidéo (YouTube, Vimeo, etc.).',
+          ),
+          maxLines: 1,
+        );
+      case ContentBlockType.document:
+        return const ListTile(
+          leading: Icon(Icons.picture_as_pdf),
+          title: Text("Document PDF"),
+          subtitle: Text("Prêt à être sauvegardé."),
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildTextEditor() {
+    final currentStyle = block.metadata['style'] ?? 'paragraph';
+    return Column(
+      children: [
+        DropdownButton<String>(
+          value: currentStyle,
+          isExpanded: true,
+          onChanged: (value) {
+            if (value != null) {
+              onMetadataChanged({'style': value});
+            }
+          },
+          items: const [
+            DropdownMenuItem(value: 'h1', child: Text('Titre 1')),
+            DropdownMenuItem(value: 'h2', child: Text('Titre 2')),
+            DropdownMenuItem(value: 'paragraph', child: Text('Paragraphe')),
+          ],
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          initialValue: block.content,
+          onChanged: onContentChanged,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            helperText: 'Syntaxe Markdown supportée.',
+          ),
+          maxLines: null,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImageEditor(BuildContext context) {
+    // CORRECTION: Assure que la valeur est toujours un double.
+    // On convertit la valeur `num` (qui peut être un int ou un double) en `double`.
+    final double width = (block.metadata['width'] as num?)?.toDouble() ?? 100.0;
+    final String alignment = block.metadata['alignment'] ?? 'center';
+
+    return Column(
+      children: [
+        Image.network(block.content, fit: BoxFit.cover),
+        const SizedBox(height: 16),
+
+        Text('Largeur: ${width.round()}%'),
+        Slider(
+          value: width,
+          min: 10.0,
+          max: 100.0,
+          divisions: 9,
+          label: '${width.round()}%',
+          onChanged: (value) {
+            onMetadataChanged({'width': value});
+          },
+        ),
+
+        Text('Alignement'),
+        ToggleButtons(
+          isSelected: [
+            alignment == 'left',
+            alignment == 'center',
+            alignment == 'right',
+          ],
+          onPressed: (index) {
+            final newAlignment = ['left', 'center', 'right'][index];
+            onMetadataChanged({'alignment': newAlignment});
+          },
+          borderRadius: BorderRadius.circular(8),
+          children: const [
+            Icon(Icons.format_align_left),
+            Icon(Icons.format_align_center),
+            Icon(Icons.format_align_right),
+          ],
+        ),
+      ],
     );
   }
 
@@ -475,22 +599,10 @@ class _ContentBlockEditor extends StatelessWidget {
         return 'Bloc Image';
       case ContentBlockType.document:
         return 'Bloc Document';
-      // MODIFICATION: Titre pour le bloc Quiz.
       case ContentBlockType.quiz:
         return 'Bloc Quiz';
       default:
         return 'Bloc inconnu';
-    }
-  }
-
-  String _getHelperText(ContentBlockType type) {
-    switch (type) {
-      case ContentBlockType.text:
-        return 'Syntaxe Markdown supportée.';
-      case ContentBlockType.video:
-        return 'URL de la vidéo (YouTube, Vimeo, etc.).';
-      default:
-        return '';
     }
   }
 }

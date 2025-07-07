@@ -25,6 +25,8 @@ import 'package:modula_lms/features/course_player/lesson_viewer_page.dart';
 import 'package:modula_lms/features/course_player/quiz_page.dart';
 import 'package:modula_lms/features/dashboard/presentation/pages/dashboard_page.dart';
 import 'package:modula_lms/features/shared/profile_page.dart';
+// NOUVEAU: Importation de la nouvelle page
+import 'package:modula_lms/features/shared/pdf_viewer_page.dart';
 
 class AppRouter {
   static GoRouter buildRouter(BuildContext context) {
@@ -78,6 +80,17 @@ class AppRouter {
             return LessonViewerPage(lessonId: lessonId);
           },
         ),
+        // NOUVEAU: Déclaration de la route pour le visualiseur PDF.
+        GoRoute(
+          path: '/pdf-viewer',
+          builder: (context, state) {
+            // On s'attend à recevoir l'URL et le titre en paramètres 'extra'.
+            final params = state.extra as Map<String, String>;
+            final pdfUrl = params['url']!;
+            final title = params['title']!;
+            return PdfViewerPage(pdfUrl: pdfUrl, documentTitle: title);
+          },
+        ),
         GoRoute(
           path: '/quiz/:id',
           builder: (context, state) {
@@ -104,22 +117,14 @@ class AppRouter {
           },
         ),
         GoRoute(
-          path: '/lesson-editor/:id',
+          path: '/lesson-editor/:lessonId/section/:sectionId',
           builder: (context, state) {
-            final lessonId = int.parse(state.pathParameters['id']!);
-            final sectionId = state.extra as int?;
+            final lessonId = int.parse(state.pathParameters['lessonId']!);
+            final sectionId = int.parse(state.pathParameters['sectionId']!);
 
-            if (sectionId == null) {
-              return const Scaffold(
-                body: Center(
-                  child: Text("Erreur : ID de la section manquant."),
-                ),
-              );
-            }
             return LessonEditorPage(lessonId: lessonId, sectionId: sectionId);
           },
         ),
-        // MODIFICATION: La route prend maintenant un ID qui sera l'ID du quiz.
         GoRoute(
           path: '/quiz-editor/:id',
           builder: (context, state) {
@@ -160,12 +165,14 @@ class AppRouter {
         final isAccessingAuthPages =
             state.uri.path == '/login' || state.uri.path == '/register';
 
+        // On ajoute la nouvelle route à la liste des routes protégées.
         const protectedRoutes = [
           '/my-courses',
           '/dashboard',
           '/profile',
           '/course-player',
           '/lesson-viewer',
+          '/pdf-viewer', // Ajout ici
           '/quiz',
           '/create-course',
           '/course-editor',

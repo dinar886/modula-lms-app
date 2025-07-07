@@ -6,39 +6,65 @@ header("Access-Control-Allow-Origin: *");
 
 require_once 'config.php';
 
-// Le script prend l'ID de la *leçon* en paramètre.
-if (!isset($_GET['lesson_id']) || empty($_GET['lesson_id'])) {
-    http_response_code(400);
-    echo json_encode(["error" => "L'ID de la leçon est manquant."]);
-    exit();
-}
-$lesson_id = $_GET['lesson_id'];
-
 $conn = new mysqli($servername, $username, $password, $dbname);
 if ($conn->connect_error) { die("Connection failed: " . $conn->connect_error); }
+$conn->set_charset("utf8mb4");
 
-// Structure de la réponse finale
+$quiz_id = 0;
+
+// --- NOUVELLE LOGIQUE FLEXIBLE ---
+// Le script vérifie s'il reçoit un quiz_id ou un lesson_id.
+
+if (isset($_GET['quiz_id']) && !empty($_GET['quiz_id'])) {
+    // CAS 1: L'instructeur modifie le quiz, on a directement le quiz_id.
+    $quiz_id = (int)$_GET['quiz_id'];
+} 
+elseif (isset($_GET['lesson_id']) && !empty($_GET['lesson_id'])) {
+    // CAS 2: L'étudiant visionne la leçon, on doit trouver le quiz_id.
+    $lesson_id = (int)$_GET['lesson_id'];
+    
+    // On cherche dans les blocs de contenu le premier bloc de type 'quiz' pour cette leçon.
+    $stmt_find = $conn->prepare("SELECT content FROM lesson_content_blocks WHERE lesson_id = ? AND block_type = 'quiz' LIMIT 1");
+    $stmt_find->bind_param("i", $lesson_id);
+    $stmt_find->execute();
+    $result_find = $stmt_find->get_result();
+
+    if ($result_find->num_rows > 0) {
+        $row = $result_find->fetch_assoc();
+        // Le contenu du bloc est l'ID du quiz.
+        $quiz_id = (int)$row['content'];
+    }
+    $stmt_find->close();
+}
+
+// Si après toutes les vérifications, on n'a pas pu trouver un quiz_id valide.
+if ($quiz_id === 0) {
+    http_response_code(404);
+    echo json_encode(["error" => "Aucun quiz trouvé pour l'identifiant fourni."]);
+    $conn->close();
+    exit();
+}
+
+// --- Le reste du script est identique et utilise le $quiz_id trouvé ---
+
 $quiz_data = [];
 
-// 1. Trouver le quiz lié à cette leçon
-$sql_quiz = "SELECT id, title, description FROM quizzes WHERE lesson_id = ? LIMIT 1";
+$sql_quiz = "SELECT id, title, description FROM quizzes WHERE id = ? LIMIT 1";
 $stmt_quiz = $conn->prepare($sql_quiz);
-$stmt_quiz->bind_param("i", $lesson_id);
+$stmt_quiz->bind_param("i", $quiz_id);
 $stmt_quiz->execute();
 $result_quiz = $stmt_quiz->get_result();
 
 if ($result_quiz->num_rows > 0) {
     $quiz_row = $result_quiz->fetch_assoc();
-    $quiz_id = $quiz_row['id'];
     
     $quiz_data = [
-        'id' => $quiz_id,
+        'id' => (int)$quiz_row['id'],
         'title' => $quiz_row['title'],
         'description' => $quiz_row['description'],
         'questions' => []
     ];
 
-    // 2. Récupérer toutes les questions pour ce quiz
     $sql_questions = "SELECT id, question_text FROM questions WHERE quiz_id = ? ORDER BY order_index ASC";
     $stmt_questions = $conn->prepare($sql_questions);
     $stmt_questions->bind_param("i", $quiz_id);
@@ -50,15 +76,11 @@ if ($result_quiz->num_rows > 0) {
             $question_id = $question_row['id'];
             
             $question_data = [
-                'id' => $question_id,
+                'id' => (int)$question_id,
                 'question_text' => $question_row['question_text'],
                 'answers' => []
             ];
 
-            // 3. Pour chaque question, récupérer ses réponses
-            // IMPORTANT: Dans une vraie application, on ne renverrait JAMAIS la colonne 'is_correct'.
-            // L'application enverrait les réponses choisies à un autre script pour la correction.
-            // Pour simplifier, nous l'envoyons ici, mais c'est une faille de sécurité.
             $sql_answers = "SELECT id, answer_text, is_correct FROM answers WHERE question_id = ?";
             $stmt_answers = $conn->prepare($sql_answers);
             $stmt_answers->bind_param("i", $question_id);
@@ -67,7 +89,7 @@ if ($result_quiz->num_rows > 0) {
 
             if ($result_answers->num_rows > 0) {
                 while ($answer_row = $result_answers->fetch_assoc()) {
-                    // On convertit is_correct en un vrai booléen
+                    $answer_row['id'] = (int)$answer_row['id'];
                     $answer_row['is_correct'] = (bool)$answer_row['is_correct'];
                     $question_data['answers'][] = $answer_row;
                 }
@@ -84,7 +106,7 @@ if ($result_quiz->num_rows > 0) {
 
 } else {
     http_response_code(404);
-    echo json_encode(["error" => "Aucun quiz trouvé pour cette leçon."]);
+    echo json_encode(["error" => "Aucun quiz trouvé avec l'ID " . $quiz_id]);
 }
 
 $stmt_quiz->close();
