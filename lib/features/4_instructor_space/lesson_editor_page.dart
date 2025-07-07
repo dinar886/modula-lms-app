@@ -196,6 +196,7 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
         });
   }
 
+  // CORRECTION : Ajout de blocs avec des contenus vides.
   void _showAddBlockMenu(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -210,7 +211,7 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
                 _addBlock(
                   context,
                   ContentBlockType.text,
-                  'Nouveau texte...',
+                  '', // Contenu vide
                   metadata: {'style': 'paragraph'},
                 );
               },
@@ -228,7 +229,7 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
               title: const Text('Vidéo (URL)'),
               onTap: () {
                 Navigator.pop(builderContext);
-                _addBlock(context, ContentBlockType.video, 'https://');
+                _addBlock(context, ContentBlockType.video, ''); // Contenu vide
               },
             ),
             ListTile(
@@ -469,7 +470,6 @@ class _ContentBlockEditor extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-
             _buildSpecificEditor(context),
           ],
         ),
@@ -477,6 +477,7 @@ class _ContentBlockEditor extends StatelessWidget {
     );
   }
 
+  // CORRECTION : Ajout de hintText dans les champs de texte.
   Widget _buildSpecificEditor(BuildContext context) {
     switch (block.blockType) {
       case ContentBlockType.text:
@@ -495,9 +496,10 @@ class _ContentBlockEditor extends StatelessWidget {
         return TextFormField(
           initialValue: block.content,
           onChanged: onContentChanged,
-          decoration: InputDecoration(
-            border: const OutlineInputBorder(),
-            helperText: 'URL de la vidéo (YouTube, Vimeo, etc.).',
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            // Texte indicatif
+            hintText: 'Collez l\'URL de la vidéo (YouTube, Vimeo...).',
           ),
           maxLines: 1,
         );
@@ -536,7 +538,8 @@ class _ContentBlockEditor extends StatelessWidget {
           onChanged: onContentChanged,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
-            helperText: 'Syntaxe Markdown supportée.',
+            // Texte indicatif
+            hintText: 'Saisissez votre texte ici. Syntaxe Markdown supportée.',
           ),
           maxLines: null,
         ),
@@ -545,8 +548,6 @@ class _ContentBlockEditor extends StatelessWidget {
   }
 
   Widget _buildImageEditor(BuildContext context) {
-    // CORRECTION: Assure que la valeur est toujours un double.
-    // On convertit la valeur `num` (qui peut être un int ou un double) en `double`.
     final double width = (block.metadata['width'] as num?)?.toDouble() ?? 100.0;
     final String alignment = block.metadata['alignment'] ?? 'center';
 
@@ -554,7 +555,6 @@ class _ContentBlockEditor extends StatelessWidget {
       children: [
         Image.network(block.content, fit: BoxFit.cover),
         const SizedBox(height: 16),
-
         Text('Largeur: ${width.round()}%'),
         Slider(
           value: width,
@@ -566,7 +566,6 @@ class _ContentBlockEditor extends StatelessWidget {
             onMetadataChanged({'width': value});
           },
         ),
-
         Text('Alignement'),
         ToggleButtons(
           isSelected: [

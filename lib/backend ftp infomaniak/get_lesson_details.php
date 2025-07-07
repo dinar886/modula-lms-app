@@ -1,5 +1,6 @@
 <?php
 // Fichier : /api/v1/get_lesson_details.php
+// Description : Récupère les détails complets d'une leçon, y compris ses blocs de contenu et leurs métadonnées.
 
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
@@ -21,6 +22,7 @@ if ($conn->connect_error) {
     echo json_encode(["error" => "Erreur de connexion à la base de données."]);
     exit();
 }
+$conn->set_charset("utf8mb4");
 
 // L'objectif est de construire une réponse JSON complète pour la leçon.
 $lesson_details = [];
@@ -37,8 +39,8 @@ if ($result_lesson->num_rows > 0) {
     $lesson_details['id'] = (int)$lesson_details['id'];
     $lesson_details['content_blocks'] = []; // On prépare un tableau pour les blocs.
 
-    // 2. Récupérer tous les blocs de contenu associés à cette leçon, ordonnés.
-    $sql_blocks = "SELECT id, block_type, content, order_index FROM lesson_content_blocks WHERE lesson_id = ? ORDER BY order_index ASC";
+    // 2. MODIFIÉ : Récupérer tous les blocs de contenu, y compris les nouvelles métadonnées.
+    $sql_blocks = "SELECT id, block_type, content, order_index, metadata FROM lesson_content_blocks WHERE lesson_id = ? ORDER BY order_index ASC";
     $stmt_blocks = $conn->prepare($sql_blocks);
     $stmt_blocks->bind_param("i", $lesson_id);
     $stmt_blocks->execute();
@@ -48,6 +50,11 @@ if ($result_lesson->num_rows > 0) {
         while ($block_row = $result_blocks->fetch_assoc()) {
             // Pour chaque bloc, on s'assure que son ID est un entier.
             $block_row['id'] = (int)$block_row['id'];
+            
+            // NOUVEAU : On décode la chaîne JSON `metadata` en un objet PHP.
+            // Si c'est null ou invalide, on renvoie un objet vide.
+            $block_row['metadata'] = !empty($block_row['metadata']) ? json_decode($block_row['metadata']) : new stdClass();
+
             $lesson_details['content_blocks'][] = $block_row;
         }
     }

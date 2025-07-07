@@ -4,26 +4,72 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
-
 import 'package:modula_lms/features/4_instructor_space/instructor_space_logic.dart';
 
-class QuizEditorPage extends StatelessWidget {
-  // MODIFICATION: La page reçoit maintenant un 'quizId'.
+// CORRECTION 1 : Le widget est maintenant un StatefulWidget.
+class QuizEditorPage extends StatefulWidget {
   final int quizId;
   const QuizEditorPage({super.key, required this.quizId});
+
+  @override
+  State<QuizEditorPage> createState() => _QuizEditorPageState();
+}
+
+class _QuizEditorPageState extends State<QuizEditorPage> {
+  // Map pour stocker les contrôleurs de texte, ce qui évite la perte de focus.
+  final Map<String, TextEditingController> _controllers = {};
+
+  @override
+  void dispose() {
+    // On libère la mémoire de tous les contrôleurs.
+    for (var controller in _controllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  /// Prépare ou met à jour les contrôleurs de texte pour le quiz.
+  void _prepareControllers(QuizEntity quiz) {
+    // Clé pour le titre
+    final titleKey = 'quiz_${quiz.id}_title';
+    _controllers.putIfAbsent(
+      titleKey,
+      () => TextEditingController(text: quiz.title),
+    );
+
+    // Clé pour la description
+    final descKey = 'quiz_${quiz.id}_desc';
+    _controllers.putIfAbsent(
+      descKey,
+      () => TextEditingController(text: quiz.description),
+    );
+
+    // Clés pour chaque question et réponse
+    for (var q in quiz.questions) {
+      final qKey = 'q_${q.id}';
+      _controllers.putIfAbsent(qKey, () => TextEditingController(text: q.text));
+      for (var a in q.answers) {
+        final aKey = 'a_${a.id}';
+        _controllers.putIfAbsent(
+          aKey,
+          () => TextEditingController(text: a.text),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (context) =>
-          sl<QuizEditorBloc>()..add(FetchQuizForEditing(quizId)),
+          sl<QuizEditorBloc>()..add(FetchQuizForEditing(widget.quizId)),
       child: BlocConsumer<QuizEditorBloc, QuizEditorState>(
-        listenWhen: (previous, current) => previous.status != current.status,
+        listenWhen: (prev, current) =>
+            prev.status != current.status || prev.quiz != current.quiz,
         listener: (context, state) {
-          if (state.status == QuizEditorStatus.failure) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(state.error), backgroundColor: Colors.red),
-            );
+          if (state.status == QuizEditorStatus.loaded) {
+            // Quand le quiz est chargé ou modifié, on s'assure que les contrôleurs sont prêts.
+            _prepareControllers(state.quiz);
           } else if (state.status == QuizEditorStatus.success) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -31,48 +77,38 @@ class QuizEditorPage extends StatelessWidget {
                 backgroundColor: Colors.green,
               ),
             );
-            // MODIFICATION: Lorsque le quiz est sauvegardé avec succès,
-            // on retourne à la page précédente en renvoyant l'ID du quiz.
+            // On renvoie l'ID du quiz sauvegardé à la page précédente.
             context.pop(state.quiz.id);
+          } else if (state.status == QuizEditorStatus.failure) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(state.error), backgroundColor: Colors.red),
+            );
           }
         },
         builder: (context, state) {
           return PopScope(
-            // S'assure que si on quitte la page avec des changements non sauvegardés,
-            // on renvoie l'ID actuel (qui pourrait être 0 si rien n'a été sauvegardé).
             onPopInvoked: (didPop) {
-              if (didPop) {
-                if (state.quiz.id == 0) {
-                  context.pop(quizId);
-                }
+              if (didPop && state.quiz.id == 0) {
+                context.pop(widget.quizId);
               }
             },
             child: Scaffold(
               appBar: AppBar(
                 title: Text(
-                  state.quiz.id == 0 ? 'Créer un Quiz' : 'Éditer le Quiz',
+                  widget.quizId == 0 ? 'Nouveau Quiz' : 'Éditer le Quiz',
                 ),
                 actions: [
-                  if (state.isDirty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8.0),
-                      child: FilledButton(
-                        onPressed: state.status == QuizEditorStatus.saving
-                            ? null
-                            : () => context.read<QuizEditorBloc>().add(
-                                SaveQuizPressed(),
-                              ),
-                        child: state.status == QuizEditorStatus.saving
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 3,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text('Enregistrer'),
-                      ),
+                  if (state.status == QuizEditorStatus.saving)
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: CircularProgressIndicator(color: Colors.white),
+                    )
+                  else
+                    IconButton(
+                      icon: const Icon(Icons.save_outlined),
+                      tooltip: 'Sauvegarder',
+                      onPressed: () =>
+                          context.read<QuizEditorBloc>().add(SaveQuiz()),
                     ),
                 ],
               ),
@@ -90,165 +126,117 @@ class QuizEditorPage extends StatelessWidget {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final bloc = context.read<QuizEditorBloc>();
+
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
+        // Champ pour le titre du quiz.
         TextFormField(
-          // On utilise une clé pour forcer la reconstruction du widget si le quiz change.
-          key: ValueKey(state.quiz.title),
-          initialValue: state.quiz.title,
+          controller: _controllers['quiz_${state.quiz.id}_title'],
           decoration: const InputDecoration(
             labelText: 'Titre du Quiz',
             border: OutlineInputBorder(),
           ),
-          onChanged: (newTitle) {
-            final updatedQuiz = state.quiz.copyWith(title: newTitle);
-            context.read<QuizEditorBloc>().add(QuizChanged(updatedQuiz));
-          },
+          onChanged: (value) =>
+              bloc.add(UpdateQuiz(state.quiz.copyWith(title: value))),
         ),
         const SizedBox(height: 16),
+        // Champ pour la description.
         TextFormField(
-          key: ValueKey(state.quiz.description),
-          initialValue: state.quiz.description,
+          controller: _controllers['quiz_${state.quiz.id}_desc'],
           decoration: const InputDecoration(
-            labelText: 'Description du Quiz',
+            labelText: 'Description (optionnel)',
             border: OutlineInputBorder(),
           ),
-          maxLines: 3,
-          onChanged: (newDescription) {
-            final updatedQuiz = state.quiz.copyWith(
-              description: newDescription,
-            );
-            context.read<QuizEditorBloc>().add(QuizChanged(updatedQuiz));
-          },
+          maxLines: null,
+          onChanged: (value) =>
+              bloc.add(UpdateQuiz(state.quiz.copyWith(description: value))),
         ),
         const Divider(height: 32),
+        // Affichage des questions
         ...state.quiz.questions.map((question) {
-          final questionIndex = state.quiz.questions.indexOf(question);
           return _QuestionEditorCard(
-            key: ValueKey(question.id),
+            key: ValueKey(question.id), // Clé unique pour la reconstruction
             question: question,
-            questionIndex: questionIndex,
+            controller: _controllers['q_${question.id}']!,
           );
         }),
         const SizedBox(height: 20),
+        // Bouton pour ajouter une question
         OutlinedButton.icon(
           icon: const Icon(Icons.add),
           label: const Text('Ajouter une question'),
-          onPressed: () {
-            final newQuestion = QuestionEntity(
-              id: DateTime.now().millisecondsSinceEpoch,
-              text: 'Nouvelle Question',
-              answers: [
-                AnswerEntity(
-                  id: DateTime.now().millisecondsSinceEpoch + 1,
-                  text: '',
-                  isCorrect: true,
-                ),
-                AnswerEntity(
-                  id: DateTime.now().millisecondsSinceEpoch + 2,
-                  text: '',
-                  isCorrect: false,
-                ),
-              ],
-            );
-            final newQuestions = [...state.quiz.questions, newQuestion];
-            final updatedQuiz = state.quiz.copyWith(questions: newQuestions);
-            context.read<QuizEditorBloc>().add(QuizChanged(updatedQuiz));
-          },
+          onPressed: () => bloc.add(AddQuestion()),
         ),
       ],
     );
   }
 }
 
-class _QuestionEditorCard extends StatelessWidget {
+// CORRECTION 2 : Les widgets internes deviennent aussi des StatefulWidget pour gérer leur propre contrôleur.
+class _QuestionEditorCard extends StatefulWidget {
   final QuestionEntity question;
-  final int questionIndex;
+  final TextEditingController controller;
 
   const _QuestionEditorCard({
     super.key,
     required this.question,
-    required this.questionIndex,
+    required this.controller,
   });
 
   @override
+  State<_QuestionEditorCard> createState() => _QuestionEditorCardState();
+}
+
+class _QuestionEditorCardState extends State<_QuestionEditorCard> {
+  @override
   Widget build(BuildContext context) {
     final bloc = context.read<QuizEditorBloc>();
-    final state = bloc.state;
+    final questionIndex = bloc.state.quiz.questions.indexOf(widget.question);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16.0),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Champ pour le texte de la question
             TextFormField(
-              key: ValueKey(question.text),
-              initialValue: question.text,
+              controller: widget.controller,
               decoration: InputDecoration(
-                labelText: 'Question ${questionIndex + 1}',
+                hintText: 'Texte de la question',
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: () => bloc.add(DeleteQuestion(widget.question.id)),
+                ),
               ),
-              onChanged: (newText) {
-                final updatedQuestion = question.copyWith(text: newText);
-                final newQuestions = List<QuestionEntity>.from(
-                  state.quiz.questions,
-                );
-                newQuestions[questionIndex] = updatedQuestion;
-                bloc.add(
-                  QuizChanged(state.quiz.copyWith(questions: newQuestions)),
-                );
-              },
+              onChanged: (value) => bloc.add(
+                UpdateQuestion(widget.question.copyWith(text: value)),
+              ),
             ),
             const SizedBox(height: 16),
-            ...question.answers.map((answer) {
-              final answerIndex = question.answers.indexOf(answer);
+            // Affichage des réponses
+            ...widget.question.answers.map((answer) {
+              // On récupère le contrôleur de la réponse depuis le widget parent.
+              final answerController = (context
+                  .findAncestorStateOfType<_QuizEditorPageState>()!
+                  ._controllers['a_${answer.id}'])!;
               return _AnswerEditorRow(
                 key: ValueKey(answer.id),
+                question: widget.question,
                 answer: answer,
-                answerIndex: answerIndex,
-                questionIndex: questionIndex,
+                controller: answerController,
               );
             }),
             const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                TextButton.icon(
-                  icon: const Icon(Icons.add_circle_outline, size: 18),
-                  label: const Text('Ajouter une réponse'),
-                  onPressed: () {
-                    final newAnswer = AnswerEntity(
-                      id: DateTime.now().millisecondsSinceEpoch,
-                      text: '',
-                      isCorrect: false,
-                    );
-                    final updatedAnswers = [...question.answers, newAnswer];
-                    final updatedQuestion = question.copyWith(
-                      answers: updatedAnswers,
-                    );
-                    final newQuestions = List<QuestionEntity>.from(
-                      state.quiz.questions,
-                    );
-                    newQuestions[questionIndex] = updatedQuestion;
-                    bloc.add(
-                      QuizChanged(state.quiz.copyWith(questions: newQuestions)),
-                    );
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () {
-                    final newQuestions = List<QuestionEntity>.from(
-                      state.quiz.questions,
-                    )..removeAt(questionIndex);
-                    bloc.add(
-                      QuizChanged(state.quiz.copyWith(questions: newQuestions)),
-                    );
-                  },
-                ),
-              ],
+            // Bouton pour ajouter une réponse
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => bloc.add(AddAnswer(widget.question.id)),
+                child: const Text("+ Ajouter une réponse"),
+              ),
             ),
           ],
         ),
@@ -258,76 +246,49 @@ class _QuestionEditorCard extends StatelessWidget {
 }
 
 class _AnswerEditorRow extends StatelessWidget {
+  final QuestionEntity question;
   final AnswerEntity answer;
-  final int questionIndex;
-  final int answerIndex;
+  final TextEditingController controller;
 
   const _AnswerEditorRow({
     super.key,
+    required this.question,
     required this.answer,
-    required this.questionIndex,
-    required this.answerIndex,
+    required this.controller,
   });
 
   @override
   Widget build(BuildContext context) {
     final bloc = context.read<QuizEditorBloc>();
-    final state = bloc.state;
-    final question = state.quiz.questions[questionIndex];
+    final isCorrect = answer.isCorrect;
 
     return Row(
       children: [
+        // Bouton radio pour marquer la bonne réponse
         Radio<bool>(
           value: true,
-          groupValue: answer.isCorrect,
+          groupValue: isCorrect,
           onChanged: (value) {
-            final resetAnswers = question.answers
-                .map((a) => a.copyWith(isCorrect: false))
-                .toList();
-            final updatedAnswer = resetAnswers[answerIndex].copyWith(
-              isCorrect: true,
-            );
-            resetAnswers[answerIndex] = updatedAnswer;
-            final updatedQuestion = question.copyWith(answers: resetAnswers);
-            final newQuestions = List<QuestionEntity>.from(
-              state.quiz.questions,
-            );
-            newQuestions[questionIndex] = updatedQuestion;
-            bloc.add(QuizChanged(state.quiz.copyWith(questions: newQuestions)));
+            if (value == true) {
+              bloc.add(
+                SetCorrectAnswer(questionId: question.id, answerId: answer.id),
+              );
+            }
           },
         ),
+        // Champ pour le texte de la réponse
         Expanded(
           child: TextFormField(
-            key: ValueKey(answer.text),
-            initialValue: answer.text,
+            controller: controller,
             decoration: const InputDecoration(hintText: 'Texte de la réponse'),
-            onChanged: (newText) {
-              final updatedAnswer = answer.copyWith(text: newText);
-              final newAnswers = List<AnswerEntity>.from(question.answers);
-              newAnswers[answerIndex] = updatedAnswer;
-              final updatedQuestion = question.copyWith(answers: newAnswers);
-              final newQuestions = List<QuestionEntity>.from(
-                state.quiz.questions,
-              );
-              newQuestions[questionIndex] = updatedQuestion;
-              bloc.add(
-                QuizChanged(state.quiz.copyWith(questions: newQuestions)),
-              );
-            },
+            onChanged: (value) =>
+                bloc.add(UpdateAnswer(answer.copyWith(text: value))),
           ),
         ),
+        // Bouton pour supprimer la réponse
         IconButton(
-          icon: const Icon(Icons.remove_circle_outline, size: 20),
-          onPressed: () {
-            final newAnswers = List<AnswerEntity>.from(question.answers)
-              ..removeAt(answerIndex);
-            final updatedQuestion = question.copyWith(answers: newAnswers);
-            final newQuestions = List<QuestionEntity>.from(
-              state.quiz.questions,
-            );
-            newQuestions[questionIndex] = updatedQuestion;
-            bloc.add(QuizChanged(state.quiz.copyWith(questions: newQuestions)));
-          },
+          icon: const Icon(Icons.close, size: 20),
+          onPressed: () => bloc.add(DeleteAnswer(answer.id)),
         ),
       ],
     );

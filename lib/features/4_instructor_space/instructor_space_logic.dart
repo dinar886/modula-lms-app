@@ -232,7 +232,6 @@ class CourseEditorBloc extends Bloc<CourseEditorEvent, CourseEditorState> {
         data: {
           'title': event.title,
           'section_id': event.sectionId,
-          // MODIFICATION: on passe le type de leçon, qui sera maintenant toujours 'text'.
           'lesson_type': event.lessonType,
         },
       );
@@ -585,7 +584,6 @@ class UploadBlockFile extends LessonEditorEvent {
   List<Object?> get props => [file, blockType, localBlockId];
 }
 
-// NOUVEL ÉVÉNEMENT: Pour mettre à jour un bloc quiz avec son ID après sauvegarde.
 class UpdateQuizBlock extends LessonEditorEvent {
   final String localBlockId;
   final int quizId;
@@ -645,9 +643,7 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
     on<LessonContentChanged>(_onLessonContentChanged);
     on<SaveLessonContent>(_onSaveLessonContent);
     on<UploadBlockFile>(_onUploadBlockFile);
-    on<UpdateQuizBlock>(
-      _onUpdateQuizBlock,
-    ); // Enregistrement du nouvel événement
+    on<UpdateQuizBlock>(_onUpdateQuizBlock);
   }
 
   Future<void> _onFetchLessonDetails(
@@ -732,14 +728,12 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
     }
   }
 
-  // NOUVELLE MÉTHODE: Gère la mise à jour du bloc quiz.
   void _onUpdateQuizBlock(
     UpdateQuizBlock event,
     Emitter<LessonEditorState> emit,
   ) {
     final updatedBlocks = state.lesson.contentBlocks.map((block) {
       if (block.localId == event.localBlockId) {
-        // On met à jour le contenu du bloc avec le nouvel ID du quiz.
         return block.copyWith(
           content: event.quizId.toString(),
           uploadStatus: UploadStatus.completed,
@@ -804,28 +798,62 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
 }
 
 //==============================================================================
-// QUIZ EDITOR
+// QUIZ EDITOR (CORRIGÉ)
 //==============================================================================
 
 // --- EVENTS ---
 abstract class QuizEditorEvent extends Equatable {
   const QuizEditorEvent();
   @override
-  List<Object> get props => [];
+  List<Object?> get props => [];
 }
 
-// MODIFICATION: L'événement prend maintenant un 'quizId'.
 class FetchQuizForEditing extends QuizEditorEvent {
   final int quizId;
   const FetchQuizForEditing(this.quizId);
 }
 
-class QuizChanged extends QuizEditorEvent {
-  final QuizEntity updatedQuiz;
-  const QuizChanged(this.updatedQuiz);
+// Événement pour une mise à jour générale du quiz (ex: titre).
+class UpdateQuiz extends QuizEditorEvent {
+  final QuizEntity quiz;
+  const UpdateQuiz(this.quiz);
 }
 
-class SaveQuizPressed extends QuizEditorEvent {}
+// Événements granulaires pour des modifications spécifiques.
+class AddQuestion extends QuizEditorEvent {}
+
+class DeleteQuestion extends QuizEditorEvent {
+  final int questionId;
+  const DeleteQuestion(this.questionId);
+}
+
+class UpdateQuestion extends QuizEditorEvent {
+  final QuestionEntity question;
+  const UpdateQuestion(this.question);
+}
+
+class AddAnswer extends QuizEditorEvent {
+  final int questionId;
+  const AddAnswer(this.questionId);
+}
+
+class DeleteAnswer extends QuizEditorEvent {
+  final int answerId;
+  const DeleteAnswer(this.answerId);
+}
+
+class UpdateAnswer extends QuizEditorEvent {
+  final AnswerEntity answer;
+  const UpdateAnswer(this.answer);
+}
+
+class SetCorrectAnswer extends QuizEditorEvent {
+  final int questionId;
+  final int answerId;
+  const SetCorrectAnswer({required this.questionId, required this.answerId});
+}
+
+class SaveQuiz extends QuizEditorEvent {}
 
 // --- STATES ---
 enum QuizEditorStatus { initial, loading, loaded, saving, success, failure }
@@ -834,7 +862,6 @@ class QuizEditorState extends Equatable {
   final QuizEditorStatus status;
   final QuizEntity quiz;
   final String error;
-  final bool isDirty;
 
   const QuizEditorState({
     this.status = QuizEditorStatus.initial,
@@ -845,25 +872,22 @@ class QuizEditorState extends Equatable {
       questions: [],
     ),
     this.error = '',
-    this.isDirty = false,
   });
 
   QuizEditorState copyWith({
     QuizEditorStatus? status,
     QuizEntity? quiz,
     String? error,
-    bool? isDirty,
   }) {
     return QuizEditorState(
       status: status ?? this.status,
       quiz: quiz ?? this.quiz,
       error: error ?? this.error,
-      isDirty: isDirty ?? this.isDirty,
     );
   }
 
   @override
-  List<Object?> get props => [status, quiz, error, isDirty];
+  List<Object?> get props => [status, quiz, error];
 }
 
 // --- BLOC ---
@@ -872,22 +896,26 @@ class QuizEditorBloc extends Bloc<QuizEditorEvent, QuizEditorState> {
 
   QuizEditorBloc({required this.apiClient}) : super(const QuizEditorState()) {
     on<FetchQuizForEditing>(_onFetchQuizForEditing);
-    on<QuizChanged>(_onQuizChanged);
-    on<SaveQuizPressed>(_onSaveQuizPressed);
+    on<UpdateQuiz>(_onUpdateQuiz);
+    on<AddQuestion>(_onAddQuestion);
+    on<DeleteQuestion>(_onDeleteQuestion);
+    on<UpdateQuestion>(_onUpdateQuestion);
+    on<AddAnswer>(_onAddAnswer);
+    on<DeleteAnswer>(_onDeleteAnswer);
+    on<UpdateAnswer>(_onUpdateAnswer);
+    on<SetCorrectAnswer>(_onSetCorrectAnswer);
+    on<SaveQuiz>(_onSaveQuiz);
   }
 
   Future<void> _onFetchQuizForEditing(
     FetchQuizForEditing event,
     Emitter<QuizEditorState> emit,
   ) async {
-    // MODIFICATION: Si le quizId est 0, c'est un nouveau quiz.
     if (event.quizId == 0) {
       emit(
         state.copyWith(
           status: QuizEditorStatus.loaded,
-          quiz: const QuizEntity(id: 0, title: 'Nouveau Quiz', questions: []),
-          isDirty:
-              true, // On le marque comme "dirty" pour activer le bouton de sauvegarde.
+          quiz: const QuizEntity(id: 0, title: '', questions: []),
         ),
       );
       return;
@@ -895,19 +923,12 @@ class QuizEditorBloc extends Bloc<QuizEditorEvent, QuizEditorState> {
 
     emit(state.copyWith(status: QuizEditorStatus.loading));
     try {
-      // On appelle le script PHP avec le 'quiz_id'.
       final response = await apiClient.get(
         '/api/v1/get_quiz_details.php',
         queryParameters: {'quiz_id': event.quizId},
       );
       final quiz = QuizEntity.fromJson(response.data);
-      emit(
-        state.copyWith(
-          status: QuizEditorStatus.loaded,
-          quiz: quiz,
-          isDirty: false,
-        ),
-      );
+      emit(state.copyWith(status: QuizEditorStatus.loaded, quiz: quiz));
     } catch (e) {
       emit(
         state.copyWith(status: QuizEditorStatus.failure, error: e.toString()),
@@ -915,43 +936,149 @@ class QuizEditorBloc extends Bloc<QuizEditorEvent, QuizEditorState> {
     }
   }
 
-  void _onQuizChanged(QuizChanged event, Emitter<QuizEditorState> emit) {
+  void _onUpdateQuiz(UpdateQuiz event, Emitter<QuizEditorState> emit) {
+    emit(state.copyWith(quiz: event.quiz));
+  }
+
+  void _onAddQuestion(AddQuestion event, Emitter<QuizEditorState> emit) {
+    final newQuestion = QuestionEntity(
+      id: DateTime.now().millisecondsSinceEpoch,
+      text: '', // Texte vide par défaut
+      answers: [
+        AnswerEntity(
+          id: DateTime.now().millisecondsSinceEpoch + 1,
+          text: '', // Texte vide par défaut
+          isCorrect: true,
+        ),
+        AnswerEntity(
+          id: DateTime.now().millisecondsSinceEpoch + 2,
+          text: '', // Texte vide par défaut
+          isCorrect: false,
+        ),
+      ],
+    );
+    final updatedQuestions = List<QuestionEntity>.from(state.quiz.questions)
+      ..add(newQuestion);
     emit(
-      state.copyWith(
-        quiz: event.updatedQuiz,
-        status: QuizEditorStatus.loaded,
-        isDirty: true,
-      ),
+      state.copyWith(quiz: state.quiz.copyWith(questions: updatedQuestions)),
     );
   }
 
-  Future<void> _onSaveQuizPressed(
-    SaveQuizPressed event,
+  void _onDeleteQuestion(DeleteQuestion event, Emitter<QuizEditorState> emit) {
+    final updatedQuestions = state.quiz.questions
+        .where((q) => q.id != event.questionId)
+        .toList();
+    emit(
+      state.copyWith(quiz: state.quiz.copyWith(questions: updatedQuestions)),
+    );
+  }
+
+  void _onUpdateQuestion(UpdateQuestion event, Emitter<QuizEditorState> emit) {
+    final updatedQuestions = state.quiz.questions.map((q) {
+      return q.id == event.question.id ? event.question : q;
+    }).toList();
+    emit(
+      state.copyWith(quiz: state.quiz.copyWith(questions: updatedQuestions)),
+    );
+  }
+
+  void _onAddAnswer(AddAnswer event, Emitter<QuizEditorState> emit) {
+    final newAnswer = AnswerEntity(
+      id: DateTime.now().millisecondsSinceEpoch,
+      text: '', // Texte vide par défaut
+      isCorrect: false,
+    );
+    final updatedQuestions = state.quiz.questions.map((q) {
+      if (q.id == event.questionId) {
+        final updatedAnswers = List<AnswerEntity>.from(q.answers)
+          ..add(newAnswer);
+        return q.copyWith(answers: updatedAnswers);
+      }
+      return q;
+    }).toList();
+    emit(
+      state.copyWith(quiz: state.quiz.copyWith(questions: updatedQuestions)),
+    );
+  }
+
+  void _onDeleteAnswer(DeleteAnswer event, Emitter<QuizEditorState> emit) {
+    final updatedQuestions = state.quiz.questions.map((q) {
+      final updatedAnswers = q.answers
+          .where((a) => a.id != event.answerId)
+          .toList();
+      return q.copyWith(answers: updatedAnswers);
+    }).toList();
+    emit(
+      state.copyWith(quiz: state.quiz.copyWith(questions: updatedQuestions)),
+    );
+  }
+
+  void _onUpdateAnswer(UpdateAnswer event, Emitter<QuizEditorState> emit) {
+    final updatedQuestions = state.quiz.questions.map((q) {
+      final updatedAnswers = q.answers.map((a) {
+        return a.id == event.answer.id ? event.answer : a;
+      }).toList();
+      return q.copyWith(answers: updatedAnswers);
+    }).toList();
+    emit(
+      state.copyWith(quiz: state.quiz.copyWith(questions: updatedQuestions)),
+    );
+  }
+
+  void _onSetCorrectAnswer(
+    SetCorrectAnswer event,
+    Emitter<QuizEditorState> emit,
+  ) {
+    final updatedQuestions = state.quiz.questions.map((q) {
+      if (q.id == event.questionId) {
+        final updatedAnswers = q.answers.map((a) {
+          return a.copyWith(isCorrect: a.id == event.answerId);
+        }).toList();
+        return q.copyWith(answers: updatedAnswers);
+      }
+      return q;
+    }).toList();
+    emit(
+      state.copyWith(quiz: state.quiz.copyWith(questions: updatedQuestions)),
+    );
+  }
+
+  Future<void> _onSaveQuiz(
+    SaveQuiz event,
     Emitter<QuizEditorState> emit,
   ) async {
+    // La logique de validation reste la même
     for (var question in state.quiz.questions) {
+      if (question.text.trim().isEmpty) {
+        emit(
+          state.copyWith(
+            status: QuizEditorStatus.failure,
+            error: "Toutes les questions doivent avoir un titre.",
+          ),
+        );
+        await Future.delayed(const Duration(seconds: 2));
+        emit(state.copyWith(status: QuizEditorStatus.loaded));
+        return;
+      }
       if (question.answers.length < 2) {
         emit(
           state.copyWith(
             status: QuizEditorStatus.failure,
-            error:
-                "Validation échouée : La question \"${question.text}\" doit avoir au moins 2 réponses.",
+            error: "Chaque question doit avoir au moins 2 réponses.",
           ),
         );
-        await Future.delayed(const Duration(milliseconds: 100));
+        await Future.delayed(const Duration(seconds: 2));
         emit(state.copyWith(status: QuizEditorStatus.loaded));
         return;
       }
-
-      if (!question.answers.any((answer) => answer.isCorrect)) {
+      if (!question.answers.any((a) => a.isCorrect)) {
         emit(
           state.copyWith(
             status: QuizEditorStatus.failure,
-            error:
-                "Validation échouée : La question \"${question.text}\" doit avoir une bonne réponse de sélectionnée.",
+            error: "Chaque question doit avoir une bonne réponse sélectionnée.",
           ),
         );
-        await Future.delayed(const Duration(milliseconds: 100));
+        await Future.delayed(const Duration(seconds: 2));
         emit(state.copyWith(status: QuizEditorStatus.loaded));
         return;
       }
@@ -963,32 +1090,13 @@ class QuizEditorBloc extends Bloc<QuizEditorEvent, QuizEditorState> {
         '/api/v1/save_quiz.php',
         data: state.quiz.toJson(),
       );
-
-      // MODIFICATION: On récupère l'ID du quiz renvoyé par le backend.
       final savedQuizId = response.data['quiz_id'];
-
-      // On met à jour l'ID du quiz dans l'état local.
       final updatedQuiz = state.quiz.copyWith(id: savedQuizId);
-
-      emit(
-        state.copyWith(
-          status: QuizEditorStatus.success,
-          isDirty: false,
-          quiz: updatedQuiz, // On met à jour le quiz dans l'état
-        ),
-      );
-
-      await Future.delayed(const Duration(seconds: 1));
-      emit(state.copyWith(status: QuizEditorStatus.loaded));
+      emit(state.copyWith(status: QuizEditorStatus.success, quiz: updatedQuiz));
     } catch (e) {
       emit(
-        state.copyWith(
-          status: QuizEditorStatus.failure,
-          error: "Erreur serveur: ${e.toString()}",
-        ),
+        state.copyWith(status: QuizEditorStatus.failure, error: e.toString()),
       );
-      await Future.delayed(const Duration(milliseconds: 100));
-      emit(state.copyWith(status: QuizEditorStatus.loaded));
     }
   }
 }
