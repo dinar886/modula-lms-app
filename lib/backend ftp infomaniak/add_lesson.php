@@ -10,11 +10,11 @@ require_once 'config.php';
 
 $data = json_decode(file_get_contents("php://input"));
 
-// Vérifie que les données nécessaires sont présentes.
-// Le type de leçon n'est plus requis ici, on le force à 'text' par défaut.
+// On vérifie maintenant aussi le type de leçon.
 if (
     !empty($data->title) &&
-    !empty($data->section_id)
+    !empty($data->section_id) &&
+    !empty($data->lesson_type)
 ) {
     $conn = new mysqli($servername, $username, $password, $dbname);
 
@@ -23,15 +23,27 @@ if (
         echo json_encode(["message" => "Erreur de connexion à la base de données."]);
         exit();
     }
+    
+    $conn->set_charset("utf8mb4");
+
+    $title = $conn->real_escape_string($data->title);
+    $section_id = (int)$data->section_id;
+    // On récupère le type de leçon envoyé par Flutter
+    $lesson_type = $conn->real_escape_string($data->lesson_type);
+    // La date d'échéance est optionnelle, donc on utilise l'opérateur de coalescence nulle
+    $due_date = isset($data->due_date) && !empty($data->due_date) ? $conn->real_escape_string($data->due_date) : null;
+
+    // On vérifie que le type est valide pour éviter les erreurs.
+    $allowed_types = ['text', 'devoir', 'evaluation'];
+    if (!in_array($lesson_type, $allowed_types)) {
+        http_response_code(400);
+        echo json_encode(["message" => "Type de leçon non valide."]);
+        exit();
+    }
 
     $conn->begin_transaction();
 
     try {
-        $title = $conn->real_escape_string($data->title);
-        $section_id = (int)$data->section_id;
-        // MODIFICATION: On force le type à 'text', car la leçon est maintenant un conteneur générique.
-        $lesson_type = 'text'; 
-
         // Détermine le prochain 'order_index' pour la nouvelle leçon.
         $order_sql = "SELECT MAX(order_index) as max_order FROM lessons WHERE section_id = ?";
         $order_stmt = $conn->prepare($order_sql);
@@ -42,26 +54,26 @@ if (
         $next_order_index = ($row['max_order'] ?? 0) + 1;
         $order_stmt->close();
 
-        // On insère la nouvelle leçon dans la table 'lessons'.
-        $sql = "INSERT INTO lessons (section_id, title, lesson_type, order_index) VALUES (?, ?, ?, ?)";
+        // On insère la nouvelle leçon avec son type et sa date d'échéance (si elle existe).
+        $sql = "INSERT INTO lessons (section_id, title, lesson_type, due_date, order_index) VALUES (?, ?, ?, ?, ?)";
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("issi", $section_id, $title, $lesson_type, $next_order_index);
-        $stmt->execute();
+        // 'ssssi' : string, string, string, string, integer
+        $stmt->bind_param("isssi", $section_id, $title, $lesson_type, $due_date, $next_order_index);
+        
+        if (!$stmt->execute()) {
+            throw new Exception("Erreur lors de l'insertion de la leçon: " . $stmt->error);
+        }
         
         $stmt->close();
-
-        // SUPPRESSION: La logique qui créait un quiz en même temps que la leçon a été retirée.
-        
         $conn->commit();
 
         http_response_code(201); // Created
-        echo json_encode(["message" => "Leçon créée avec succès."]);
+        echo json_encode(["message" => "Contenu créé avec succès."]);
 
-    } catch (mysqli_sql_exception $exception) {
+    } catch (Exception $exception) {
         $conn->rollback();
-        
         http_response_code(500);
-        echo json_encode(["message" => "Erreur lors de la création de la leçon.", "error" => $exception->getMessage()]);
+        echo json_encode(["message" => "Erreur lors de la création.", "error" => $exception->getMessage()]);
     } finally {
         $conn->close();
     }

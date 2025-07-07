@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
 //==============================================================================
-// ENTITIES (Inchangées)
+// ENTITIES
 //==============================================================================
 
 class SectionEntity extends Equatable {
@@ -119,20 +119,65 @@ class ContentBlockEntity extends Equatable {
   ];
 }
 
-enum LessonType { video, text, document, quiz, devoir, evaluation, unknown }
+enum LessonType { text, video, document, quiz, devoir, evaluation, unknown }
+
+class SubmissionEntity extends Equatable {
+  final int id;
+  final DateTime submissionDate;
+  final List<ContentBlockEntity> content; // Le contenu est une liste de blocs
+  final double? grade;
+  final String status;
+  final String? instructorFeedback;
+
+  const SubmissionEntity({
+    required this.id,
+    required this.submissionDate,
+    required this.content,
+    this.grade,
+    required this.status,
+    this.instructorFeedback,
+  });
+
+  factory SubmissionEntity.fromJson(Map<String, dynamic> json) {
+    return SubmissionEntity(
+      id: json['id'],
+      submissionDate: DateTime.parse(json['submission_date']),
+      content: (json['content'] as List)
+          .map((blockJson) => ContentBlockEntity.fromJson(blockJson))
+          .toList(),
+      grade: json['grade'] != null ? (json['grade'] as num).toDouble() : null,
+      status: json['status'],
+      instructorFeedback: json['instructor_feedback'],
+    );
+  }
+
+  @override
+  List<Object?> get props => [
+    id,
+    submissionDate,
+    content,
+    grade,
+    status,
+    instructorFeedback,
+  ];
+}
 
 class LessonEntity extends Equatable {
   final int id;
   final String title;
   final LessonType lessonType;
+  final DateTime? dueDate;
   final List<ContentBlockEntity> contentBlocks;
+  final SubmissionEntity? submission;
   final Map<String, dynamic> metadata;
 
   const LessonEntity({
     required this.id,
     required this.title,
     required this.lessonType,
+    this.dueDate,
     this.contentBlocks = const [],
+    this.submission,
     this.metadata = const {},
   });
 
@@ -159,8 +204,15 @@ class LessonEntity extends Equatable {
     return LessonEntity(
       id: json['id'],
       title: json['title'],
-      lessonType: _lessonTypeFromString(json['lesson_type']),
+      // L'appel ici utilise la méthode qui a été renommée.
+      lessonType: lessonTypeFromString(json['lesson_type']),
+      dueDate: json['due_date'] != null
+          ? DateTime.parse(json['due_date'])
+          : null,
       contentBlocks: blocks,
+      submission: json['submission'] != null
+          ? SubmissionEntity.fromJson(json['submission'])
+          : null,
       metadata: metadataDecoded,
     );
   }
@@ -169,19 +221,26 @@ class LessonEntity extends Equatable {
     int? id,
     String? title,
     LessonType? lessonType,
+    DateTime? dueDate,
     List<ContentBlockEntity>? contentBlocks,
+    SubmissionEntity? submission,
     Map<String, dynamic>? metadata,
   }) {
     return LessonEntity(
       id: id ?? this.id,
       title: title ?? this.title,
       lessonType: lessonType ?? this.lessonType,
+      dueDate: dueDate ?? this.dueDate,
       contentBlocks: contentBlocks ?? this.contentBlocks,
+      submission: submission ?? this.submission,
       metadata: metadata ?? this.metadata,
     );
   }
 
-  static LessonType _lessonTypeFromString(String type) {
+  // ✅ CORRECTION APPLIQUÉE ICI
+  // La méthode est maintenant statique et publique (plus de `_` au début).
+  // Elle peut donc être appelée depuis n'importe quel autre fichier, comme `LessonEntity.lessonTypeFromString(...)`.
+  static LessonType lessonTypeFromString(String type) {
     return LessonType.values.firstWhere(
       (e) => e.name.toLowerCase() == type.toLowerCase(),
       orElse: () => LessonType.unknown,
@@ -189,7 +248,15 @@ class LessonEntity extends Equatable {
   }
 
   @override
-  List<Object?> get props => [id, title, lessonType, contentBlocks, metadata];
+  List<Object?> get props => [
+    id,
+    title,
+    lessonType,
+    dueDate,
+    contentBlocks,
+    submission,
+    metadata,
+  ];
 }
 
 class AnswerEntity extends Equatable {
@@ -328,7 +395,7 @@ class QuizEntity extends Equatable {
 }
 
 //==============================================================================
-// COURSE CONTENT BLOC (Inchangé)
+// COURSE CONTENT BLOC
 //==============================================================================
 abstract class CourseContentEvent extends Equatable {
   const CourseContentEvent();
@@ -407,7 +474,7 @@ class CourseContentBloc extends Bloc<CourseContentEvent, CourseContentState> {
 }
 
 //==============================================================================
-// LESSON DETAIL BLOC (Inchangé)
+// LESSON DETAIL BLOC
 //==============================================================================
 abstract class LessonDetailEvent extends Equatable {
   const LessonDetailEvent();
@@ -417,7 +484,22 @@ abstract class LessonDetailEvent extends Equatable {
 
 class FetchLessonDetails extends LessonDetailEvent {
   final int lessonId;
-  const FetchLessonDetails(this.lessonId);
+  final String studentId;
+  const FetchLessonDetails({required this.lessonId, required this.studentId});
+}
+
+class SubmitAssignment extends LessonDetailEvent {
+  final int lessonId;
+  final int courseId;
+  final String studentId;
+  final List<ContentBlockEntity> content;
+
+  const SubmitAssignment({
+    required this.lessonId,
+    required this.courseId,
+    required this.studentId,
+    required this.content,
+  });
 }
 
 abstract class LessonDetailState extends Equatable {
@@ -440,35 +522,72 @@ class LessonDetailError extends LessonDetailState {
   const LessonDetailError(this.message);
 }
 
+class LessonDetailSubmitting extends LessonDetailState {}
+
+class LessonDetailSubmitSuccess extends LessonDetailState {}
+
 class LessonDetailBloc extends Bloc<LessonDetailEvent, LessonDetailState> {
   final ApiClient apiClient;
 
   LessonDetailBloc({required this.apiClient}) : super(LessonDetailInitial()) {
-    on<FetchLessonDetails>((event, emit) async {
-      emit(LessonDetailLoading());
-      try {
-        final response = await apiClient.get(
-          '/api/v1/get_lesson_details.php',
-          queryParameters: {'lesson_id': event.lessonId},
-        );
-        final lesson = LessonEntity.fromJson(response.data);
-        emit(LessonDetailLoaded(lesson));
-      } catch (e) {
-        emit(
-          LessonDetailError(
-            "Erreur lors de la récupération des détails de la leçon : ${e.toString()}",
-          ),
-        );
-      }
-    });
+    on<FetchLessonDetails>(_onFetchLessonDetails);
+    on<SubmitAssignment>(_onSubmitAssignment);
+  }
+
+  Future<void> _onFetchLessonDetails(
+    FetchLessonDetails event,
+    Emitter<LessonDetailState> emit,
+  ) async {
+    emit(LessonDetailLoading());
+    try {
+      final response = await apiClient.get(
+        '/api/v1/get_lesson_details.php',
+        queryParameters: {
+          'lesson_id': event.lessonId,
+          'student_id': event.studentId,
+        },
+      );
+      final lesson = LessonEntity.fromJson(response.data);
+      emit(LessonDetailLoaded(lesson));
+    } catch (e) {
+      emit(
+        LessonDetailError(
+          "Erreur lors de la récupération des détails de la leçon : ${e.toString()}",
+        ),
+      );
+    }
+  }
+
+  Future<void> _onSubmitAssignment(
+    SubmitAssignment event,
+    Emitter<LessonDetailState> emit,
+  ) async {
+    emit(LessonDetailSubmitting());
+    try {
+      final data = {
+        'lesson_id': event.lessonId,
+        'course_id': event.courseId,
+        'student_id': event.studentId,
+        'content': event.content.map((block) => block.toJson()).toList(),
+      };
+      await apiClient.post('/api/v1/submit_assignment.php', data: data);
+      emit(LessonDetailSubmitSuccess());
+      add(
+        FetchLessonDetails(
+          lessonId: event.lessonId,
+          studentId: event.studentId,
+        ),
+      );
+    } catch (e) {
+      emit(LessonDetailError("Erreur lors de la soumission : ${e.toString()}"));
+    }
   }
 }
 
 //==============================================================================
-// QUIZ BLOC (CORRIGÉ POUR LA ROBUSTESSE)
+// QUIZ BLOC
 //==============================================================================
 
-// --- Événements (inchangés) ---
 abstract class QuizEvent extends Equatable {
   const QuizEvent();
   @override
@@ -493,7 +612,6 @@ class SubmitQuiz extends QuizEvent {
   const SubmitQuiz({required this.studentId, required this.lessonId});
 }
 
-// --- États (inchangés) ---
 enum QuizStatus { initial, loading, loaded, submitted, failure }
 
 class QuizState extends Equatable {
@@ -542,7 +660,6 @@ class QuizState extends Equatable {
   ];
 }
 
-// --- Bloc ---
 class QuizBloc extends Bloc<QuizEvent, QuizState> {
   final ApiClient apiClient;
 
@@ -557,7 +674,10 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
     try {
       final lessonResponse = await apiClient.get(
         '/api/v1/get_lesson_details.php',
-        queryParameters: {'lesson_id': event.lessonId},
+        queryParameters: {
+          'lesson_id': event.lessonId,
+          'student_id': event.studentId,
+        },
       );
       final lesson = LessonEntity.fromJson(lessonResponse.data);
       final quizBlock = lesson.contentBlocks.firstWhere(
@@ -614,7 +734,6 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
     emit(state.copyWith(userAnswers: updatedAnswers));
   }
 
-  /// CORRECTION APPLIQUÉE ICI pour la robustesse
   Future<void> _onSubmitQuiz(SubmitQuiz event, Emitter<QuizState> emit) async {
     emit(state.copyWith(status: QuizStatus.loading));
     try {
@@ -622,7 +741,6 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
         return MapEntry(key.toString(), value);
       });
 
-      // On lance d'abord l'appel API qui est le plus important.
       final response = await apiClient.post(
         '/api/v1/submit_quiz.php',
         data: {
@@ -635,25 +753,19 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
 
       final score = (response.data['score'] as num).toDouble();
 
-      // CORRECTION : On enveloppe la sauvegarde locale dans un try-catch.
-      // Cela évite que l'application ne plante si le plugin shared_preferences a un problème.
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('quiz_completed_${event.lessonId}', true);
       } on PlatformException catch (e) {
-        // En cas de problème de communication avec la partie native,
-        // on l'affiche dans la console de débogage sans planter l'app.
         print(
           "AVERTISSEMENT: Échec de la sauvegarde locale du statut du quiz (PlatformException): $e",
         );
       } catch (e) {
-        // On attrape aussi les autres erreurs potentielles.
         print(
           "AVERTISSEMENT: Échec de la sauvegarde locale du statut du quiz (Erreur inconnue): $e",
         );
       }
 
-      // On émet l'état de succès, car la soumission au serveur a réussi.
       emit(
         state.copyWith(
           status: QuizStatus.submitted,
@@ -662,7 +774,6 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
         ),
       );
     } catch (e) {
-      // Si l'appel API initial échoue, on émet l'état d'erreur.
       emit(
         state.copyWith(
           status: QuizStatus.failure,

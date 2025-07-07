@@ -54,23 +54,24 @@ if (
 
     $image_was_updated = false;
 
-    // Étape 2 : Gestion de l'upload d'une NOUVELLE image
-    if (isset($_FILES['image']) && $_FILES['image']['error'] == UPLOAD_ERR_OK) {
-        $upload_dir = 'uploads/'; // Dossier de destination des images
+    // **CORRECTION : Gestion de l'upload d'une NOUVELLE image**
+    // On vérifie maintenant avec la clé 'imageFile' envoyée par Flutter.
+    if (isset($_FILES['imageFile']) && $_FILES['imageFile']['error'] == UPLOAD_ERR_OK) {
+        $upload_dir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/courses/';
         if (!is_dir($upload_dir)) {
             mkdir($upload_dir, 0755, true);
         }
 
         // On génère un nom de fichier unique pour éviter les conflits
-        $file_info = pathinfo($_FILES['image']['name']);
+        $file_info = pathinfo($_FILES['imageFile']['name']);
         $file_ext = strtolower($file_info['extension']);
         $unique_filename = uniqid('course_', true) . '.' . $file_ext;
         $target_file = $upload_dir . $unique_filename;
 
         // On déplace le fichier temporaire vers son emplacement final
-        if (move_uploaded_file($_FILES['image']['tmp_name'], $target_file)) {
+        if (move_uploaded_file($_FILES['imageFile']['tmp_name'], $target_file)) {
             // Si le déplacement réussit, on met à jour l'URL de l'image
-            $image_url = "https://modula-lms.com/api/v1/" . $target_file;
+            $image_url = "https://modula-lms.com/uploads/courses/" . $unique_filename;
             $image_was_updated = true;
         } else {
             http_response_code(500); // Erreur serveur
@@ -82,13 +83,11 @@ if (
     // Étape 3 : Si aucune nouvelle image n'a été uploadée, on gère le placeholder
     if (!$image_was_updated) {
         // On vérifie si l'image actuelle est un placeholder ou si elle est vide
-        // Si c'est le cas, on la (re)génère pour refléter les changements de titre ou de couleur
         if (empty($image_url) || strpos($image_url, 'placehold.co') !== false) {
-             $encoded_title = urlencode($title); // On encode le titre pour l'URL
-             $hex_color = ltrim($color, '#');   // On s'assure que la couleur est au format hexadécimal sans #
+             $encoded_title = urlencode($title);
+             $hex_color = ltrim($color, '#');
              $image_url = "https://placehold.co/600x400/{$hex_color}/FFFFFF/png?text={$encoded_title}";
         }
-        // Si une "vraie" image existait déjà, on ne touche à rien et on la conserve.
     }
 
     // Étape 4 : Mise à jour des informations dans la base de données
@@ -106,7 +105,11 @@ if (
     // On exécute la requête
     if ($stmt->execute()) {
         http_response_code(200); // Succès
-        echo json_encode(["message" => "Cours mis à jour avec succès."]);
+        echo json_encode([
+            "message" => "Cours mis à jour avec succès.",
+            // On renvoie la nouvelle URL de l'image pour que l'app se mette à jour sans recharger
+            "new_image_url" => $image_url
+        ]);
     } else {
         http_response_code(500); // Erreur serveur
         echo json_encode(["message" => "Erreur lors de la mise à jour du cours: " . $stmt->error]);
@@ -116,7 +119,7 @@ if (
 } else {
     // Si les données POST sont incomplètes
     http_response_code(400); // Mauvaise requête
-    echo json_encode(["message" => "Données incomplètes.", "received" => $_POST]);
+    echo json_encode(["message" => "Données incomplètes.", "received" => $_POST, "files" => $_FILES]);
 }
 
 // On ferme la connexion à la base de données

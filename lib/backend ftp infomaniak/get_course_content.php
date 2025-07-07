@@ -21,6 +21,7 @@ if ($conn->connect_error) {
     echo json_encode(["error" => "Erreur de connexion à la base de données."]);
     exit();
 }
+$conn->set_charset("utf8mb4");
 
 // L'objectif est de construire un tableau final structuré.
 $course_content = [];
@@ -38,13 +39,14 @@ if ($result_sections->num_rows > 0) {
         $section_id = $section_row['id'];
         
         $section_data = [
-            'id' => $section_id,
+            'id' => (int)$section_id,
             'title' => $section_row['title'],
             'lessons' => [] // On prépare un tableau vide pour les leçons de cette section.
         ];
 
         // 2. Pour chaque section, récupérer ses leçons, ordonnées.
-        $sql_lessons = "SELECT id, title, lesson_type FROM lessons WHERE section_id = ? ORDER BY order_index ASC";
+        // ON AJOUTE `due_date` à la sélection.
+        $sql_lessons = "SELECT id, title, lesson_type, due_date FROM lessons WHERE section_id = ? ORDER BY order_index ASC";
         $stmt_lessons = $conn->prepare($sql_lessons);
         $stmt_lessons->bind_param("i", $section_id);
         $stmt_lessons->execute();
@@ -52,6 +54,8 @@ if ($result_sections->num_rows > 0) {
 
         if ($result_lessons->num_rows > 0) {
             while ($lesson_row = $result_lessons->fetch_assoc()) {
+                // On s'assure que les types sont corrects pour le JSON
+                $lesson_row['id'] = (int)$lesson_row['id'];
                 // On ajoute chaque leçon au tableau 'lessons' de la section courante.
                 $section_data['lessons'][] = $lesson_row;
             }
@@ -69,5 +73,4 @@ http_response_code(200);
 echo json_encode($course_content);
 
 $conn->close();
-
 ?>

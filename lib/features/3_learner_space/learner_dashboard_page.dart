@@ -28,22 +28,13 @@ class LearnerDashboardPage extends StatelessWidget {
             // Au clic, navigue vers la page qui liste les cours de l'élève.
             onTap: () => context.push('/my-courses'),
           ),
-          // Carte 2: Devoirs
+          // Carte 2: Devoirs / Rendus
           _buildDashboardCard(
             context,
-            icon: Icons.assignment_outlined,
-            label: 'Devoirs',
-            onTap: () {
-              // Action temporaire : affiche un message.
-              // La logique réelle sera ajoutée plus tard.
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'La page "Devoirs" est en cours de construction !',
-                  ),
-                ),
-              );
-            },
+            icon: Icons.assignment_turned_in_outlined,
+            label: 'Mes Rendus',
+            // MISE A JOUR : Navigue vers la nouvelle page des rendus de l'élève.
+            onTap: () => context.push('/my-submissions'),
           ),
           // Carte 3: Corrections
           _buildDashboardCard(

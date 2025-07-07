@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
 
@@ -134,8 +135,9 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                                       );
                                     },
                                   );
-                                } else if (value == 'add_lesson') {
-                                  _showAddLessonDialog(
+                                } else if (value == 'add_content') {
+                                  // NOUVELLE LOGIQUE : Ouvre le menu d'ajout
+                                  _showAddContentMenu(
                                     context,
                                     section.id,
                                     courseEditorBloc,
@@ -145,8 +147,8 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                               itemBuilder: (BuildContext context) =>
                                   <PopupMenuEntry<String>>[
                                     const PopupMenuItem<String>(
-                                      value: 'add_lesson',
-                                      child: Text('Ajouter une leçon'),
+                                      value: 'add_content',
+                                      child: Text('Ajouter du contenu'),
                                     ),
                                     const PopupMenuItem<String>(
                                       value: 'edit',
@@ -168,35 +170,38 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                                   _getIconForLessonType(lesson.lessonType),
                                 ),
                                 title: Text(lesson.title),
-                                // Un clic simple ouvre l'éditeur de contenu de la leçon
+                                subtitle: lesson.dueDate != null
+                                    ? Text(
+                                        'À rendre le ${DateFormat('dd/MM/yyyy HH:mm').format(lesson.dueDate!)}',
+                                        style: TextStyle(
+                                          color: Colors.red.shade700,
+                                          fontSize: 12,
+                                        ),
+                                      )
+                                    : null,
                                 onTap: () {
                                   context.push(
                                     '/lesson-editor/${lesson.id}/section/${section.id}',
                                   );
                                 },
-                                // --- MODIFICATION ICI ---
-                                // Menu pour chaque leçon (modifier, supprimer, et maintenant aperçu)
                                 trailing: PopupMenuButton<String>(
                                   onSelected: (value) {
                                     if (value == 'edit_name') {
-                                      // Logique pour modifier le nom de la leçon
                                       _showEditLessonDialog(
                                         context,
                                         lesson.id,
                                         lesson.title,
                                         context.read<CourseEditorBloc>(),
                                       );
-                                      // NOUVEAU: Gère le clic sur "Voir l'aperçu"
                                     } else if (value == 'preview') {
-                                      // Navigue vers la page de visualisation de la leçon
                                       context.push(
                                         '/lesson-viewer/${lesson.id}',
+                                        extra: _currentCourse.id,
                                       );
                                     } else if (value == 'delete') {
-                                      // Logique pour supprimer la leçon
                                       _showDeleteConfirmationDialog(
                                         context,
-                                        'Supprimer la leçon ?',
+                                        'Supprimer cette activité ?',
                                         () {
                                           context.read<CourseEditorBloc>().add(
                                             DeleteLesson(lesson.id),
@@ -207,18 +212,15 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                                   },
                                   itemBuilder: (BuildContext context) =>
                                       <PopupMenuEntry<String>>[
-                                        // Option pour modifier le nom
                                         const PopupMenuItem<String>(
                                           value: 'edit_name',
                                           child: Text('Modifier le nom'),
                                         ),
-                                        // NOUVEAU: Option pour voir l'aperçu
                                         const PopupMenuItem<String>(
                                           value: 'preview',
                                           child: Text("Voir l'aperçu"),
                                         ),
                                         const PopupMenuDivider(),
-                                        // Option pour supprimer
                                         const PopupMenuItem<String>(
                                           value: 'delete',
                                           child: Text(
@@ -265,6 +267,167 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
+  // NOUVELLE FONCTION : Affiche le menu pour choisir quoi ajouter
+  void _showAddContentMenu(
+    BuildContext context,
+    int sectionId,
+    CourseEditorBloc bloc,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      builder: (builderContext) => Wrap(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.article_outlined),
+            title: const Text('Ajouter une Leçon'),
+            onTap: () {
+              Navigator.pop(builderContext);
+              _showAddLessonDialog(context, sectionId, bloc, 'text');
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.assignment_outlined),
+            title: const Text('Ajouter un Devoir'),
+            onTap: () {
+              Navigator.pop(builderContext);
+              _showAddLessonDialog(context, sectionId, bloc, 'devoir');
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.assessment_outlined),
+            title: const Text('Ajouter un Contrôle'),
+            onTap: () {
+              Navigator.pop(builderContext);
+              _showAddLessonDialog(context, sectionId, bloc, 'evaluation');
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // MISE A JOUR : Le dialogue gère maintenant le type et la date d'échéance
+  void _showAddLessonDialog(
+    BuildContext context,
+    int sectionId,
+    CourseEditorBloc courseEditorBloc,
+    String lessonType, // 'text', 'devoir', ou 'evaluation'
+  ) {
+    final titleController = TextEditingController();
+    DateTime? dueDate;
+    final isAssignment = lessonType == 'devoir';
+
+    String dialogTitle;
+    switch (lessonType) {
+      case 'devoir':
+        dialogTitle = 'Nouveau Devoir';
+        break;
+      case 'evaluation':
+        dialogTitle = 'Nouveau Contrôle';
+        break;
+      default:
+        dialogTitle = 'Nouvelle Leçon';
+        break;
+    }
+
+    showDialog(
+      context: context,
+      // On utilise un StatefulWidget pour le dialogue afin de gérer l'état de la date
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text(dialogTitle),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(labelText: 'Titre'),
+                  autofocus: true,
+                ),
+                // Affiche le sélecteur de date uniquement pour les devoirs
+                if (isAssignment)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 20.0),
+                    child: ListTile(
+                      title: Text(
+                        dueDate == null
+                            ? 'Définir une date de rendu'
+                            : 'À rendre le: ${DateFormat('dd/MM/yyyy HH:mm').format(dueDate!)}',
+                      ),
+                      trailing: const Icon(Icons.calendar_today),
+                      onTap: () async {
+                        final pickedDate = await showDatePicker(
+                          context: context,
+                          initialDate: DateTime.now(),
+                          firstDate: DateTime.now(),
+                          lastDate: DateTime.now().add(
+                            const Duration(days: 365),
+                          ),
+                        );
+                        if (pickedDate != null) {
+                          final pickedTime = await showTimePicker(
+                            context: context,
+                            initialTime: TimeOfDay.fromDateTime(DateTime.now()),
+                          );
+                          if (pickedTime != null) {
+                            setDialogState(() {
+                              dueDate = DateTime(
+                                pickedDate.year,
+                                pickedDate.month,
+                                pickedDate.day,
+                                pickedTime.hour,
+                                pickedTime.minute,
+                              );
+                            });
+                          }
+                        }
+                      },
+                    ),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Annuler'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  if (titleController.text.isNotEmpty) {
+                    if (isAssignment && dueDate == null) {
+                      // Affiche une erreur si la date est requise mais non définie
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Veuillez définir une date de rendu pour le devoir.',
+                          ),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return;
+                    }
+                    courseEditorBloc.add(
+                      AddLesson(
+                        title: titleController.text,
+                        sectionId: sectionId,
+                        lessonType: lessonType,
+                        // On envoie la date au format ISO 8601
+                        dueDate: dueDate?.toIso8601String(),
+                      ),
+                    );
+                    Navigator.pop(dialogContext);
+                  }
+                },
+                child: const Text('Ajouter'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   // --- Fonctions de dialogue (inchangées) ---
 
   void _showAddSectionDialog(
@@ -292,46 +455,6 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
               if (titleController.text.isNotEmpty) {
                 courseEditorBloc.add(
                   AddSection(title: titleController.text, courseId: courseId),
-                );
-                Navigator.pop(dialogContext);
-              }
-            },
-            child: const Text('Ajouter'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showAddLessonDialog(
-    BuildContext context,
-    int sectionId,
-    CourseEditorBloc courseEditorBloc,
-  ) {
-    final titleController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Nouvelle Leçon'),
-        content: TextField(
-          controller: titleController,
-          decoration: const InputDecoration(labelText: 'Titre de la leçon'),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (titleController.text.isNotEmpty) {
-                courseEditorBloc.add(
-                  AddLesson(
-                    title: titleController.text,
-                    sectionId: sectionId,
-                    lessonType: 'text', // Type par défaut
-                  ),
                 );
                 Navigator.pop(dialogContext);
               }

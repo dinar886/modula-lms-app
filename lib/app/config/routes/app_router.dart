@@ -11,6 +11,7 @@ import 'package:modula_lms/features/1_auth/register_page.dart';
 import 'package:modula_lms/features/2_marketplace/marketplace_logic.dart';
 import 'package:modula_lms/features/2_marketplace/marketplace_page.dart';
 import 'package:modula_lms/features/3_learner_space/my_courses_page.dart';
+import 'package:modula_lms/features/3_learner_space/my_submissions_page.dart';
 import 'package:modula_lms/features/4_instructor_space/course_editor_page.dart';
 import 'package:modula_lms/features/4_instructor_space/course_info_editor_page.dart';
 import 'package:modula_lms/features/4_instructor_space/create_course_page.dart';
@@ -70,6 +71,11 @@ class AppRouter {
               path: '/profile',
               builder: (context, state) => const ProfilePage(),
             ),
+            // NOUVELLE ROUTE : Les rendus de l'élève
+            GoRoute(
+              path: '/my-submissions',
+              builder: (context, state) => const MySubmissionsPage(),
+            ),
           ],
         ),
         GoRoute(
@@ -83,23 +89,18 @@ class AppRouter {
           path: '/lesson-viewer/:id',
           builder: (context, state) {
             final lessonId = int.parse(state.pathParameters['id']!);
-            return LessonViewerPage(lessonId: lessonId);
+            // On récupère l'ID du cours passé en paramètre
+            final courseId = state.extra as String;
+            // CORRECTION : Le constructeur de LessonViewerPage accepte maintenant les deux paramètres.
+            return LessonViewerPage(lessonId: lessonId, courseId: courseId);
           },
         ),
-        // CORRECTION APPLIQUÉE ICI
         GoRoute(
           path: '/pdf-viewer',
           builder: (context, state) {
-            // Étape 1 : On s'attend à recevoir les paramètres dans `state.extra`.
-            // On le caste en `Map<String, dynamic>` pour être plus flexible.
             final params = state.extra as Map<String, dynamic>;
-
-            // Étape 2 : On extrait les valeurs en s'assurant qu'elles sont bien des chaînes de caractères.
-            // Cela évite les erreurs de type si une valeur n'est pas une String.
             final pdfUrl = params['url'] as String;
             final title = params['title'] as String;
-
-            // Étape 3 : On passe les données à la page du visualiseur PDF.
             return PdfViewerPage(pdfUrl: pdfUrl, documentTitle: title);
           },
         ),
@@ -182,6 +183,7 @@ class AppRouter {
           '/my-courses',
           '/dashboard',
           '/profile',
+          '/my-submissions',
           '/course-player',
           '/lesson-viewer',
           '/pdf-viewer',

@@ -53,11 +53,11 @@ class CoursePlayerPage extends StatelessWidget {
                                   )
                                 : null,
                             onTap: () {
-                              if (lesson.lessonType == LessonType.quiz) {
-                                context.push('/quiz/${lesson.id}');
-                              } else {
-                                context.push('/lesson-viewer/${lesson.id}');
-                              }
+                              // On passe l'ID du cours en extra pour la soumission de devoir
+                              context.push(
+                                '/lesson-viewer/${lesson.id}',
+                                extra: course.id,
+                              );
                             },
                           );
                         },
@@ -97,6 +97,10 @@ class CoursePlayerPage extends StatelessWidget {
         return Icons.picture_as_pdf_outlined;
       case LessonType.quiz:
         return Icons.quiz_outlined;
+      case LessonType.devoir:
+        return Icons.assignment_outlined;
+      case LessonType.evaluation:
+        return Icons.assessment_outlined;
       default:
         return Icons.help_outline;
     }

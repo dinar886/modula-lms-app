@@ -132,7 +132,7 @@ class CourseManagementBloc
 abstract class CourseEditorEvent extends Equatable {
   const CourseEditorEvent();
   @override
-  List<Object> get props => [];
+  List<Object?> get props => [];
 }
 
 class AddSection extends CourseEditorEvent {
@@ -141,15 +141,22 @@ class AddSection extends CourseEditorEvent {
   const AddSection({required this.title, required this.courseId});
 }
 
+// MISE A JOUR : On ajoute la date d'échéance optionnelle
 class AddLesson extends CourseEditorEvent {
   final String title;
   final int sectionId;
-  final String lessonType;
+  final String lessonType; // 'text', 'devoir', 'evaluation'
+  final String? dueDate; // Format ISO 8601, ex: "2023-12-31T23:59:00"
+
   const AddLesson({
     required this.title,
     required this.sectionId,
     required this.lessonType,
+    this.dueDate,
   });
+
+  @override
+  List<Object?> get props => [title, sectionId, lessonType, dueDate];
 }
 
 class EditSection extends CourseEditorEvent {
@@ -227,14 +234,17 @@ class CourseEditorBloc extends Bloc<CourseEditorEvent, CourseEditorState> {
   ) async {
     emit(CourseEditorLoading());
     try {
-      await apiClient.post(
-        '/api/v1/add_lesson.php',
-        data: {
-          'title': event.title,
-          'section_id': event.sectionId,
-          'lesson_type': event.lessonType,
-        },
-      );
+      final data = {
+        'title': event.title,
+        'section_id': event.sectionId,
+        'lesson_type': event.lessonType,
+      };
+      // On n'ajoute la date que si elle est fournie
+      if (event.dueDate != null) {
+        data['due_date'] = event.dueDate!;
+      }
+
+      await apiClient.post('/api/v1/add_lesson.php', data: data);
       emit(CourseEditorSuccess());
     } catch (e) {
       emit(CourseEditorFailure(e.toString()));
@@ -654,7 +664,8 @@ class LessonEditorBloc extends Bloc<LessonEditorEvent, LessonEditorState> {
     try {
       final response = await apiClient.get(
         '/api/v1/get_lesson_details.php',
-        queryParameters: {'lesson_id': event.lessonId},
+        // On passe un ID étudiant factice car il n'est pas pertinent pour l'éditeur.
+        queryParameters: {'lesson_id': event.lessonId, 'student_id': -1},
       );
       final lesson = LessonEntity.fromJson(response.data);
       emit(

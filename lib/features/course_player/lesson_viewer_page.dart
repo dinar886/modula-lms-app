@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
-// J'importe le BLoC d'authentification pour récupérer l'ID de l'utilisateur.
 import 'package:modula_lms/features/1_auth/auth_feature.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
 import 'package:video_player/video_player.dart';
@@ -13,27 +13,56 @@ import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 
 class LessonViewerPage extends StatelessWidget {
   final int lessonId;
-  const LessonViewerPage({super.key, required this.lessonId});
+  // CORRECTION : On ajoute courseId, qui est passé par le routeur.
+  final String courseId;
+
+  const LessonViewerPage({
+    super.key,
+    required this.lessonId,
+    required this.courseId,
+  });
 
   @override
   Widget build(BuildContext context) {
+    // On récupère l'ID de l'étudiant connecté.
+    final studentId = context.read<AuthenticationBloc>().state.user.id;
+
     // On fournit le BLoC qui charge les détails de la leçon.
     return BlocProvider(
-      create: (context) =>
-          sl<LessonDetailBloc>()..add(FetchLessonDetails(lessonId)),
+      create: (context) => sl<LessonDetailBloc>()
+        // CORRECTION : On utilise les paramètres nommés et on fournit les deux IDs.
+        ..add(FetchLessonDetails(lessonId: lessonId, studentId: studentId)),
       child: Scaffold(
-        // Le corps de la page est un BlocBuilder qui réagit aux états du LessonDetailBloc.
-        body: BlocBuilder<LessonDetailBloc, LessonDetailState>(
+        // Le corps de la page est un BlocConsumer pour réagir aux états et aux événements.
+        body: BlocConsumer<LessonDetailBloc, LessonDetailState>(
+          listener: (context, state) {
+            if (state is LessonDetailSubmitSuccess) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Travail rendu avec succès !'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+            if (state is LessonDetailError) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Erreur : ${state.message}'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          },
           builder: (context, state) {
             // Affiche un indicateur de chargement.
-            if (state is LessonDetailLoading) {
+            if (state is LessonDetailLoading || state is LessonDetailInitial) {
               return const Center(child: CircularProgressIndicator());
             }
-            // Si la leçon est chargée avec succès, on construit son contenu.
+            // Si la leçon est chargée, on construit son contenu.
             if (state is LessonDetailLoaded) {
-              return _buildLessonContent(context, state.lesson);
+              return _buildLessonContent(context, state.lesson, courseId);
             }
-            // En cas d'erreur, on affiche le message.
+            // En cas d'erreur persistante (qui n'est pas gérée par le listener).
             if (state is LessonDetailError) {
               return Center(child: Text(state.message));
             }
@@ -45,22 +74,36 @@ class LessonViewerPage extends StatelessWidget {
     );
   }
 
-  /// Construit la vue de la leçon avec une barre d'application et la liste des blocs de contenu.
-  Widget _buildLessonContent(BuildContext context, LessonEntity lesson) {
+  /// Construit la vue de la leçon avec une barre d'application et le contenu.
+  Widget _buildLessonContent(
+    BuildContext context,
+    LessonEntity lesson,
+    String courseId,
+  ) {
+    final bool isAssignment =
+        lesson.lessonType == LessonType.devoir ||
+        lesson.lessonType == LessonType.evaluation;
+
     return CustomScrollView(
       slivers: [
         SliverAppBar(title: Text(lesson.title), pinned: true, floating: true),
-        // Si la leçon n'a pas de contenu, on affiche un message.
+
+        // Affiche le widget spécifique pour les devoirs et contrôles
+        if (isAssignment)
+          SliverToBoxAdapter(
+            child: AssignmentViewWidget(lesson: lesson, courseId: courseId),
+          ),
+
+        // Affiche un message si la leçon n'a pas d'énoncé/contenu.
         if (lesson.contentBlocks.isEmpty)
           const SliverFillRemaining(
-            child: Center(child: Text("Cette leçon est actuellement vide.")),
+            child: Center(child: Text("Cette activité n'a pas d'énoncé.")),
           )
         else
-          // Sinon, on construit la liste des blocs.
+          // Sinon, on construit la liste des blocs (l'énoncé).
           SliverList(
             delegate: SliverChildBuilderDelegate((context, index) {
               final block = lesson.contentBlocks[index];
-              // On passe le bloc de contenu et l'ID de la leçon pour la construction du widget.
               return _buildBlockWidget(context, block, lesson.id);
             }, childCount: lesson.contentBlocks.length),
           ),
@@ -113,12 +156,7 @@ class LessonViewerPage extends StatelessWidget {
         );
 
       case ContentBlockType.quiz:
-        final quizId = int.tryParse(block.content);
-        if (quizId != null) {
-          // CORRECTION : On passe maintenant l'ID de la leçon au widget du quiz.
-          return QuizBlockWidget(lessonId: lessonId);
-        }
-        return const SizedBox.shrink();
+        return QuizBlockWidget(lessonId: lessonId);
 
       case ContentBlockType.unknown:
       default:
@@ -128,28 +166,195 @@ class LessonViewerPage extends StatelessWidget {
 }
 
 // =======================================================================
-// WIDGET POUR LE BLOC QUIZ (MIS À JOUR)
+// NOUVEAU WIDGET POUR LA VUE DEVOIR/ÉVALUATION
+// =======================================================================
+class AssignmentViewWidget extends StatelessWidget {
+  final LessonEntity lesson;
+  final String courseId;
+
+  const AssignmentViewWidget({
+    super.key,
+    required this.lesson,
+    required this.courseId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // On vérifie si l'étudiant a déjà soumis son travail.
+    final submission = lesson.submission;
+
+    return Card(
+      margin: const EdgeInsets.all(16.0),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Affiche le statut du rendu.
+            _buildStatusChip(context, submission),
+            const SizedBox(height: 16),
+
+            // Affiche la date d'échéance si elle existe.
+            if (lesson.dueDate != null)
+              _buildInfoRow(
+                Icons.calendar_today_outlined,
+                'À rendre avant le :',
+                DateFormat('dd/MM/yyyy à HH:mm').format(lesson.dueDate!),
+              ),
+
+            // Affiche la date de soumission si le travail a été rendu.
+            if (submission != null)
+              _buildInfoRow(
+                Icons.check_circle_outline,
+                'Rendu le :',
+                DateFormat(
+                  'dd/MM/yyyy à HH:mm',
+                ).format(submission.submissionDate),
+              ),
+
+            // Affiche la note si elle a été attribuée.
+            if (submission?.grade != null)
+              _buildInfoRow(
+                Icons.star_border_purple500_outlined,
+                'Note :',
+                '${submission!.grade!.toStringAsFixed(1)} / 20.0',
+              ),
+
+            const Divider(height: 32),
+
+            // Affiche le bouton pour rendre le devoir ou un message si c'est déjà fait.
+            Center(
+              child: submission == null
+                  ? FilledButton.icon(
+                      icon: const Icon(Icons.upload_file),
+                      label: const Text('Confirmer et Rendre le Travail'),
+                      onPressed: () => _confirmSubmission(context),
+                    )
+                  : const Text(
+                      'Votre travail a été rendu et ne peut plus être modifié.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey,
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Affiche une boîte de dialogue de confirmation avant la soumission.
+  void _confirmSubmission(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirmer le rendu ?'),
+        content: const Text(
+          'Une fois rendu, vous ne pourrez plus modifier votre travail. Êtes-vous sûr de vouloir continuer ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final studentId = context
+                  .read<AuthenticationBloc>()
+                  .state
+                  .user
+                  .id;
+              // Pour l'instant, le contenu est vide, car il n'y a pas d'éditeur
+              // pour que l'élève puisse écrire quelque chose.
+              // C'est une prochaine étape logique du développement.
+              context.read<LessonDetailBloc>().add(
+                SubmitAssignment(
+                  lessonId: lesson.id,
+                  courseId: int.parse(courseId),
+                  studentId: studentId,
+                  content: [], // Le contenu du rendu sera ajouté plus tard.
+                ),
+              );
+              Navigator.pop(dialogContext);
+            },
+            child: const Text('Confirmer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Widget pour afficher une ligne d'information (icône, label, valeur).
+  Widget _buildInfoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: Colors.grey.shade700),
+          const SizedBox(width: 8),
+          Text('$label ', style: const TextStyle(fontWeight: FontWeight.bold)),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
+  }
+
+  // Widget pour afficher la puce de statut (Noté, Rendu, À rendre).
+  Widget _buildStatusChip(BuildContext context, SubmissionEntity? submission) {
+    String label;
+    Color color;
+    IconData icon;
+
+    if (submission?.status == 'graded') {
+      label = 'Noté';
+      color = Colors.green;
+      icon = Icons.check_circle;
+    } else if (submission != null) {
+      label = 'Rendu';
+      color = Colors.blue;
+      icon = Icons.task_alt;
+    } else {
+      label = 'À Rendre';
+      color = Colors.orange;
+      icon = Icons.pending_actions;
+    }
+
+    return Chip(
+      avatar: Icon(icon, color: Colors.white, size: 18),
+      label: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      backgroundColor: color,
+      elevation: 2,
+    );
+  }
+}
+
+// =======================================================================
+// WIDGET POUR LE BLOC QUIZ (INCHANGÉ MAIS NÉCESSAIRE POUR LA COMPILATION)
 // =======================================================================
 class QuizBlockWidget extends StatelessWidget {
-  // CORRECTION : Le widget a maintenant besoin de l'ID de la leçon, pas du quiz.
-  // L'ID du quiz sera récupéré depuis les détails de la leçon dans le BLoC.
   final int lessonId;
 
   const QuizBlockWidget({super.key, required this.lessonId});
 
   @override
   Widget build(BuildContext context) {
-    // On récupère l'ID de l'étudiant connecté.
     final studentId = context.read<AuthenticationBloc>().state.user.id;
 
-    // On fournit le QuizBloc au sous-arbre de widgets.
     return BlocProvider(
-      create: (context) => sl<QuizBloc>()
-        // CORRECTION : L'événement `FetchQuiz` est maintenant appelé avec les bons paramètres nommés.
-        ..add(FetchQuiz(lessonId: lessonId, studentId: studentId)),
+      create: (context) =>
+          sl<QuizBloc>()
+            ..add(FetchQuiz(lessonId: lessonId, studentId: studentId)),
       child: BlocBuilder<QuizBloc, QuizState>(
         builder: (context, state) {
-          // On affiche différents widgets en fonction de l'état du quiz.
           switch (state.status) {
             case QuizStatus.loading:
               return const Center(
@@ -170,14 +375,11 @@ class QuizBlockWidget extends StatelessWidget {
                 ),
               );
             case QuizStatus.submitted:
-              // Affiche le résultat après soumission.
               return _buildQuizResult(context, state);
             case QuizStatus.loaded:
-              // Si le quiz est chargé mais que l'étudiant ne peut pas le tenter, on affiche un message.
               if (!state.canAttemptQuiz) {
                 return _buildAttemptsExceeded(context);
               }
-              // Sinon, on affiche le formulaire du quiz.
               return _buildQuizForm(context, state);
             case QuizStatus.initial:
             default:
@@ -188,7 +390,6 @@ class QuizBlockWidget extends StatelessWidget {
     );
   }
 
-  /// Construit le formulaire du quiz avec les questions et les réponses.
   Widget _buildQuizForm(BuildContext context, QuizState state) {
     return Card(
       margin: const EdgeInsets.all(16.0),
@@ -215,7 +416,6 @@ class QuizBlockWidget extends StatelessWidget {
                 ),
               ),
             const Divider(height: 32),
-            // On itère sur chaque question pour l'afficher.
             ...state.quiz.questions.map((question) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 16.0),
@@ -227,7 +427,6 @@ class QuizBlockWidget extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
-                    // On itère sur les réponses possibles pour chaque question.
                     ...question.answers.map((answer) {
                       return RadioListTile<int>(
                         title: Text(answer.text),
@@ -253,7 +452,6 @@ class QuizBlockWidget extends StatelessWidget {
             Center(
               child: FilledButton(
                 onPressed: () {
-                  // CORRECTION : L'événement `SubmitQuiz` a maintenant aussi besoin des IDs.
                   final studentId = context
                       .read<AuthenticationBloc>()
                       .state
@@ -272,7 +470,6 @@ class QuizBlockWidget extends StatelessWidget {
     );
   }
 
-  /// Construit le widget affichant le résultat du quiz.
   Widget _buildQuizResult(BuildContext context, QuizState state) {
     return Card(
       margin: const EdgeInsets.all(16.0),
@@ -305,7 +502,6 @@ class QuizBlockWidget extends StatelessWidget {
     );
   }
 
-  /// Construit le widget affiché lorsque l'étudiant a dépassé le nombre de tentatives.
   Widget _buildAttemptsExceeded(BuildContext context) {
     return Card(
       margin: const EdgeInsets.all(16.0),

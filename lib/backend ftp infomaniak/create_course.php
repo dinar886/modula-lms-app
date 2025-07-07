@@ -18,7 +18,7 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8");
 
-// **MODIFIÉ** : On lit les données depuis `$_POST` car on utilise `multipart/form-data`.
+// On lit les données depuis `$_POST` car on utilise `multipart/form-data`.
 if (
     !empty($_POST['title']) &&
     isset($_POST['description']) &&
@@ -34,7 +34,6 @@ if (
         $description = $conn->real_escape_string($_POST['description']);
         $price = (float)$_POST['price'];
         $instructor_id = (int)$_POST['instructor_id'];
-        // On récupère la couleur (ou une couleur par défaut si non fournie).
         $color = !empty($_POST['color']) ? $conn->real_escape_string($_POST['color']) : '#005A9C';
 
         // Récupération du nom de l'auteur
@@ -55,20 +54,23 @@ if (
 
         $image_url = '';
 
-        // **NOUVEAU** : Gestion de l'upload de l'image
-        if (isset($_FILES['image']) && $_FILES['image']['error'] == UPLOAD_ERR_OK) {
-            $upload_dir = 'uploads/';
+        // **CORRECTION : Gestion de l'upload de l'image**
+        // On vérifie maintenant avec la clé 'imageFile' envoyée par Flutter.
+        if (isset($_FILES['imageFile']) && $_FILES['imageFile']['error'] == UPLOAD_ERR_OK) {
+            // Le chemin de destination est maintenant à la racine du site, pour un accès plus facile.
+            $upload_dir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/courses/';
             if (!is_dir($upload_dir)) {
+                // On crée le dossier s'il n'existe pas.
                 mkdir($upload_dir, 0755, true);
             }
-            $file_info = pathinfo($_FILES['image']['name']);
+            $file_info = pathinfo($_FILES['imageFile']['name']);
             $file_ext = strtolower($file_info['extension']);
             $unique_filename = uniqid('course_', true) . '.' . $file_ext;
             $target_file = $upload_dir . $unique_filename;
 
-            if (move_uploaded_file($_FILES['image']['tmp_name'], $target_file)) {
-                // On construit l'URL complète de l'image
-                $image_url = "https://modula-lms.com/api/v1/" . $target_file;
+            if (move_uploaded_file($_FILES['imageFile']['tmp_name'], $target_file)) {
+                // On construit l'URL complète et publique de l'image.
+                $image_url = "https://modula-lms.com/uploads/courses/" . $unique_filename;
             } else {
                 throw new Exception("Erreur lors du déplacement du fichier uploadé.");
             }
@@ -79,7 +81,7 @@ if (
             $image_url = "https://placehold.co/600x400/{$hex_color}/FFFFFF/png?text={$encoded_title}";
         }
 
-        // **MODIFIÉ** : On insère le cours avec l'image et la couleur.
+        // On insère le cours avec la bonne URL d'image et la couleur.
         $sql = "INSERT INTO courses (title, description, price, image_url, color, author) VALUES (?, ?, ?, ?, ?, ?)";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("ssdsss", $title, $description, $price, $image_url, $color, $author_name);
