@@ -2,6 +2,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/services.dart'; // Import nécessaire pour PlatformException
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:modula_lms/core/api/api_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
@@ -27,7 +28,15 @@ class SectionEntity extends Equatable {
 
 enum UploadStatus { uploading, completed, failed }
 
-enum ContentBlockType { text, video, image, document, quiz, unknown }
+enum ContentBlockType {
+  text,
+  video,
+  image,
+  document,
+  quiz,
+  submission_placeholder, // Le placeholder pour le rendu des élèves
+  unknown,
+}
 
 class ContentBlockEntity extends Equatable {
   final int id;
@@ -61,18 +70,23 @@ class ContentBlockEntity extends Equatable {
       metadataDecoded = Map<String, dynamic>.from(metadataRaw);
     }
 
+    final int blockId = (json['id'] ?? 0) as int;
+    final int orderIdx = (json['order_index'] ?? 0) as int;
+
     return ContentBlockEntity(
-      id: json['id'] as int,
-      localId: (json['id'] as int).toString(),
+      id: blockId,
+      localId: (json['localId'] ?? blockId.toString()) as String,
       blockType: _blockTypeFromString(json['block_type'] as String),
       content: json['content'] as String,
-      orderIndex: json['order_index'] as int,
+      orderIndex: orderIdx,
       metadata: metadataDecoded,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
+      'localId': localId,
       'block_type': blockType.name,
       'content': content,
       'order_index': orderIndex,
@@ -138,7 +152,9 @@ class SubmissionEntity extends Equatable {
     this.instructorFeedback,
   });
 
+  // ✅ CORRECTION APPLIQUÉE ICI
   factory SubmissionEntity.fromJson(Map<String, dynamic> json) {
+    // Le champ 'content' arrive déjà décodé du PHP. On le traite directement comme une liste.
     return SubmissionEntity(
       id: json['id'],
       submissionDate: DateTime.parse(json['submission_date']),
@@ -204,7 +220,6 @@ class LessonEntity extends Equatable {
     return LessonEntity(
       id: json['id'],
       title: json['title'],
-      // L'appel ici utilise la méthode qui a été renommée.
       lessonType: lessonTypeFromString(json['lesson_type']),
       dueDate: json['due_date'] != null
           ? DateTime.parse(json['due_date'])
@@ -237,9 +252,6 @@ class LessonEntity extends Equatable {
     );
   }
 
-  // ✅ CORRECTION APPLIQUÉE ICI
-  // La méthode est maintenant statique et publique (plus de `_` au début).
-  // Elle peut donc être appelée depuis n'importe quel autre fichier, comme `LessonEntity.lessonTypeFromString(...)`.
   static LessonType lessonTypeFromString(String type) {
     return LessonType.values.firstWhere(
       (e) => e.name.toLowerCase() == type.toLowerCase(),
@@ -479,7 +491,7 @@ class CourseContentBloc extends Bloc<CourseContentEvent, CourseContentState> {
 abstract class LessonDetailEvent extends Equatable {
   const LessonDetailEvent();
   @override
-  List<Object> get props => [];
+  List<Object?> get props => [];
 }
 
 class FetchLessonDetails extends LessonDetailEvent {
@@ -492,14 +504,26 @@ class SubmitAssignment extends LessonDetailEvent {
   final int lessonId;
   final int courseId;
   final String studentId;
-  final List<ContentBlockEntity> content;
 
   const SubmitAssignment({
     required this.lessonId,
     required this.courseId,
     required this.studentId,
-    required this.content,
   });
+}
+
+class UploadSubmissionFile extends LessonDetailEvent {
+  final XFile file;
+  const UploadSubmissionFile(this.file);
+  @override
+  List<Object?> get props => [file];
+}
+
+class RemoveSubmissionFile extends LessonDetailEvent {
+  final String localBlockId;
+  const RemoveSubmissionFile(this.localBlockId);
+  @override
+  List<Object?> get props => [localBlockId];
 }
 
 abstract class LessonDetailState extends Equatable {
@@ -514,7 +538,22 @@ class LessonDetailLoading extends LessonDetailState {}
 
 class LessonDetailLoaded extends LessonDetailState {
   final LessonEntity lesson;
-  const LessonDetailLoaded(this.lesson);
+  final List<ContentBlockEntity> submissionContent; // Contenu du rendu
+
+  const LessonDetailLoaded(this.lesson, {this.submissionContent = const []});
+
+  @override
+  List<Object> get props => [lesson, submissionContent];
+
+  LessonDetailLoaded copyWith({
+    LessonEntity? lesson,
+    List<ContentBlockEntity>? submissionContent,
+  }) {
+    return LessonDetailLoaded(
+      lesson ?? this.lesson,
+      submissionContent: submissionContent ?? this.submissionContent,
+    );
+  }
 }
 
 class LessonDetailError extends LessonDetailState {
@@ -532,6 +571,8 @@ class LessonDetailBloc extends Bloc<LessonDetailEvent, LessonDetailState> {
   LessonDetailBloc({required this.apiClient}) : super(LessonDetailInitial()) {
     on<FetchLessonDetails>(_onFetchLessonDetails);
     on<SubmitAssignment>(_onSubmitAssignment);
+    on<UploadSubmissionFile>(_onUploadSubmissionFile);
+    on<RemoveSubmissionFile>(_onRemoveSubmissionFile);
   }
 
   Future<void> _onFetchLessonDetails(
@@ -548,7 +589,12 @@ class LessonDetailBloc extends Bloc<LessonDetailEvent, LessonDetailState> {
         },
       );
       final lesson = LessonEntity.fromJson(response.data);
-      emit(LessonDetailLoaded(lesson));
+
+      final initialSubmissionContent = lesson.submission?.content ?? [];
+
+      emit(
+        LessonDetailLoaded(lesson, submissionContent: initialSubmissionContent),
+      );
     } catch (e) {
       emit(
         LessonDetailError(
@@ -562,13 +608,18 @@ class LessonDetailBloc extends Bloc<LessonDetailEvent, LessonDetailState> {
     SubmitAssignment event,
     Emitter<LessonDetailState> emit,
   ) async {
+    if (state is! LessonDetailLoaded) return;
+    final loadedState = state as LessonDetailLoaded;
+
     emit(LessonDetailSubmitting());
     try {
       final data = {
         'lesson_id': event.lessonId,
         'course_id': event.courseId,
         'student_id': event.studentId,
-        'content': event.content.map((block) => block.toJson()).toList(),
+        'content': loadedState.submissionContent
+            .map((block) => block.toJson())
+            .toList(),
       };
       await apiClient.post('/api/v1/submit_assignment.php', data: data);
       emit(LessonDetailSubmitSuccess());
@@ -580,7 +631,92 @@ class LessonDetailBloc extends Bloc<LessonDetailEvent, LessonDetailState> {
       );
     } catch (e) {
       emit(LessonDetailError("Erreur lors de la soumission : ${e.toString()}"));
+      add(
+        FetchLessonDetails(
+          lessonId: event.lessonId,
+          studentId: event.studentId,
+        ),
+      );
     }
+  }
+
+  Future<void> _onUploadSubmissionFile(
+    UploadSubmissionFile event,
+    Emitter<LessonDetailState> emit,
+  ) async {
+    if (state is! LessonDetailLoaded) return;
+    final currentState = state as LessonDetailLoaded;
+    final localId = DateTime.now().millisecondsSinceEpoch.toString();
+
+    final tempBlock = ContentBlockEntity(
+      id: 0,
+      localId: localId,
+      blockType: ContentBlockType.document,
+      content: event.file.name,
+      orderIndex: currentState.submissionContent.length,
+      uploadStatus: UploadStatus.uploading,
+      metadata: {'fileName': event.file.name},
+    );
+
+    final listWithTempBlock = List<ContentBlockEntity>.from(
+      currentState.submissionContent,
+    )..add(tempBlock);
+
+    emit(currentState.copyWith(submissionContent: listWithTempBlock));
+
+    try {
+      final response = await apiClient.postMultipart(
+        path: '/api/v1/upload_file.php',
+        data: {},
+        file: event.file,
+      );
+      final fileUrl = response.data['url'];
+
+      final finalBlock = tempBlock.copyWith(
+        content: fileUrl,
+        uploadStatus: UploadStatus.completed,
+      );
+
+      final latestState = state as LessonDetailLoaded;
+      final listToUpdate = List<ContentBlockEntity>.from(
+        latestState.submissionContent,
+      );
+      final index = listToUpdate.indexWhere((b) => b.localId == localId);
+
+      if (index != -1) {
+        listToUpdate[index] = finalBlock;
+      }
+
+      emit(latestState.copyWith(submissionContent: listToUpdate));
+    } catch (e) {
+      final failedBlock = tempBlock.copyWith(uploadStatus: UploadStatus.failed);
+
+      final latestState = state as LessonDetailLoaded;
+      final listToUpdate = List<ContentBlockEntity>.from(
+        latestState.submissionContent,
+      );
+      final index = listToUpdate.indexWhere((b) => b.localId == localId);
+
+      if (index != -1) {
+        listToUpdate[index] = failedBlock;
+      }
+
+      emit(latestState.copyWith(submissionContent: listToUpdate));
+    }
+  }
+
+  void _onRemoveSubmissionFile(
+    RemoveSubmissionFile event,
+    Emitter<LessonDetailState> emit,
+  ) {
+    if (state is! LessonDetailLoaded) return;
+    final loadedState = state as LessonDetailLoaded;
+
+    final updatedContent = loadedState.submissionContent
+        .where((b) => b.localId != event.localBlockId)
+        .toList();
+
+    emit(loadedState.copyWith(submissionContent: updatedContent));
   }
 }
 

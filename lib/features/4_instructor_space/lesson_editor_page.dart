@@ -93,7 +93,7 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
             body: _buildBody(context, state),
             floatingActionButton: FloatingActionButton(
               child: const Icon(Icons.add),
-              onPressed: () => _showAddBlockMenu(context),
+              onPressed: () => _showAddBlockMenu(context, state),
             ),
           );
         },
@@ -196,7 +196,11 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
         });
   }
 
-  void _showAddBlockMenu(BuildContext context) {
+  void _showAddBlockMenu(BuildContext context, LessonEditorState state) {
+    final lessonType = state.lesson.lessonType;
+    final isAssignment =
+        lessonType == LessonType.devoir || lessonType == LessonType.evaluation;
+
     showModalBottomSheet(
       context: context,
       builder: (builderContext) {
@@ -254,6 +258,20 @@ class _LessonEditorPageState extends State<LessonEditorPage> {
                 );
               },
             ),
+            // ✅ CONDITION : Affiche l'option "Espace de rendu" uniquement pour les devoirs/contrôles.
+            if (isAssignment)
+              ListTile(
+                leading: const Icon(Icons.upload_file_outlined),
+                title: const Text('Espace de rendu (Placeholder)'),
+                onTap: () {
+                  Navigator.pop(builderContext);
+                  _addBlock(
+                    context,
+                    ContentBlockType.submission_placeholder,
+                    '',
+                  );
+                },
+              ),
           ],
         );
       },
@@ -485,6 +503,27 @@ class _ContentBlockEditor extends StatelessWidget {
         return _buildImageEditor(context);
       case ContentBlockType.quiz:
         return _buildQuizEditor(context);
+      // ✅ AJOUT : Affichage du placeholder dans l'éditeur.
+      case ContentBlockType.submission_placeholder:
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.upload_file_outlined, color: Colors.grey),
+              SizedBox(width: 8),
+              Text(
+                'Espace de rendu pour l\'élève',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
+        );
       case ContentBlockType.video:
         return TextFormField(
           initialValue: block.content,
@@ -631,6 +670,9 @@ class _ContentBlockEditor extends StatelessWidget {
         return 'Bloc Document';
       case ContentBlockType.quiz:
         return 'Bloc Quiz';
+      // ✅ AJOUT : Titre pour le nouveau bloc.
+      case ContentBlockType.submission_placeholder:
+        return 'Espace de Rendu';
       default:
         return 'Bloc inconnu';
     }

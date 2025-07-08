@@ -1,9 +1,11 @@
 // lib/features/course_player/lesson_viewer_page.dart
 import 'package:chewie/chewie.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/1_auth/auth_feature.dart';
@@ -13,7 +15,6 @@ import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 
 class LessonViewerPage extends StatelessWidget {
   final int lessonId;
-  // CORRECTION : On ajoute courseId, qui est passé par le routeur.
   final String courseId;
 
   const LessonViewerPage({
@@ -24,16 +25,23 @@ class LessonViewerPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // On récupère l'ID de l'étudiant connecté.
     final studentId = context.read<AuthenticationBloc>().state.user.id;
 
-    // On fournit le BLoC qui charge les détails de la leçon.
-    return BlocProvider(
-      create: (context) => sl<LessonDetailBloc>()
-        // CORRECTION : On utilise les paramètres nommés et on fournit les deux IDs.
-        ..add(FetchLessonDetails(lessonId: lessonId, studentId: studentId)),
+    // On utilise MultiBlocProvider pour fournir les deux BLoCs à l'arbre des widgets.
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(
+          create: (context) => sl<LessonDetailBloc>()
+            ..add(FetchLessonDetails(lessonId: lessonId, studentId: studentId)),
+        ),
+        // Le QuizBloc est maintenant fourni ici pour être accessible globalement sur la page.
+        BlocProvider(
+          create: (context) =>
+              sl<QuizBloc>()
+                ..add(FetchQuiz(lessonId: lessonId, studentId: studentId)),
+        ),
+      ],
       child: Scaffold(
-        // Le corps de la page est un BlocConsumer pour réagir aux états et aux événements.
         body: BlocConsumer<LessonDetailBloc, LessonDetailState>(
           listener: (context, state) {
             if (state is LessonDetailSubmitSuccess) {
@@ -54,19 +62,15 @@ class LessonViewerPage extends StatelessWidget {
             }
           },
           builder: (context, state) {
-            // Affiche un indicateur de chargement.
             if (state is LessonDetailLoading || state is LessonDetailInitial) {
               return const Center(child: CircularProgressIndicator());
             }
-            // Si la leçon est chargée, on construit son contenu.
             if (state is LessonDetailLoaded) {
-              return _buildLessonContent(context, state.lesson, courseId);
+              return _buildLessonContent(context, state);
             }
-            // En cas d'erreur persistante (qui n'est pas gérée par le listener).
             if (state is LessonDetailError) {
               return Center(child: Text(state.message));
             }
-            // Par défaut, on n'affiche rien.
             return const SizedBox.shrink();
           },
         ),
@@ -74,13 +78,9 @@ class LessonViewerPage extends StatelessWidget {
     );
   }
 
-  /// Construit la vue de la leçon avec une barre d'application et le contenu.
-  Widget _buildLessonContent(
-    BuildContext context,
-    LessonEntity lesson,
-    String courseId,
-  ) {
-    final bool isAssignment =
+  Widget _buildLessonContent(BuildContext context, LessonDetailLoaded state) {
+    final lesson = state.lesson;
+    final isAssignment =
         lesson.lessonType == LessonType.devoir ||
         lesson.lessonType == LessonType.evaluation;
 
@@ -88,19 +88,16 @@ class LessonViewerPage extends StatelessWidget {
       slivers: [
         SliverAppBar(title: Text(lesson.title), pinned: true, floating: true),
 
-        // Affiche le widget spécifique pour les devoirs et contrôles
         if (isAssignment)
           SliverToBoxAdapter(
             child: AssignmentViewWidget(lesson: lesson, courseId: courseId),
           ),
 
-        // Affiche un message si la leçon n'a pas d'énoncé/contenu.
         if (lesson.contentBlocks.isEmpty)
           const SliverFillRemaining(
             child: Center(child: Text("Cette activité n'a pas d'énoncé.")),
           )
         else
-          // Sinon, on construit la liste des blocs (l'énoncé).
           SliverList(
             delegate: SliverChildBuilderDelegate((context, index) {
               final block = lesson.contentBlocks[index];
@@ -111,19 +108,20 @@ class LessonViewerPage extends StatelessWidget {
     );
   }
 
-  /// Construit le widget approprié en fonction du type de bloc de contenu.
   Widget _buildBlockWidget(
     BuildContext context,
     ContentBlockEntity block,
-    int lessonId, // On a besoin de l'ID de la leçon pour le quiz.
+    int lessonId,
   ) {
     switch (block.blockType) {
+      case ContentBlockType.submission_placeholder:
+        return const SubmissionPlaceholderWidget();
+
       case ContentBlockType.text:
         return TextContentWidget(
           markdownContent: block.content,
           metadata: block.metadata,
         );
-
       case ContentBlockType.video:
         final videoId = YoutubePlayer.convertUrlToId(block.content);
         if (videoId != null && videoId.isNotEmpty) {
@@ -131,10 +129,8 @@ class LessonViewerPage extends StatelessWidget {
         } else {
           return VideoPlayerWidget(videoUrl: block.content);
         }
-
       case ContentBlockType.image:
         return ImageWidget(imageUrl: block.content, metadata: block.metadata);
-
       case ContentBlockType.document:
         final pdfUrl = block.content;
         return Padding(
@@ -143,7 +139,6 @@ class LessonViewerPage extends StatelessWidget {
             icon: const Icon(Icons.picture_as_pdf_outlined),
             label: const Text('Ouvrir le document'),
             onPressed: () {
-              // Navigation vers la page de visualisation de PDF.
               context.push(
                 '/pdf-viewer',
                 extra: {
@@ -154,10 +149,8 @@ class LessonViewerPage extends StatelessWidget {
             },
           ),
         );
-
       case ContentBlockType.quiz:
         return QuizBlockWidget(lessonId: lessonId);
-
       case ContentBlockType.unknown:
       default:
         return const SizedBox.shrink();
@@ -166,7 +159,7 @@ class LessonViewerPage extends StatelessWidget {
 }
 
 // =======================================================================
-// NOUVEAU WIDGET POUR LA VUE DEVOIR/ÉVALUATION
+// WIDGET POUR LA VUE DEVOIR/ÉVALUATION (Mis à jour)
 // =======================================================================
 class AssignmentViewWidget extends StatelessWidget {
   final LessonEntity lesson;
@@ -180,8 +173,55 @@ class AssignmentViewWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // On vérifie si l'étudiant a déjà soumis son travail.
+    // On écoute les deux BLoCs pour obtenir toutes les informations nécessaires.
+    final lessonDetailState = context.watch<LessonDetailBloc>().state;
+    final quizState = context.watch<QuizBloc>().state;
+
+    // Sécurité : si l'état n'est pas encore chargé, on n'affiche rien.
+    if (lessonDetailState is! LessonDetailLoaded) {
+      return const SizedBox.shrink();
+    }
+
+    // Extraction des données des états.
+    final submissionContent = lessonDetailState.submissionContent;
     final submission = lesson.submission;
+
+    // =======================================================================
+    // NOUVELLE LOGIQUE DE VALIDATION DE LA SOUMISSION
+    // =======================================================================
+    final hasQuiz = lesson.contentBlocks.any(
+      (b) => b.blockType == ContentBlockType.quiz,
+    );
+    final hasSubmissionPlaceholder = lesson.contentBlocks.any(
+      (b) => b.blockType == ContentBlockType.submission_placeholder,
+    );
+
+    // [CORRECTION] : On vérifie maintenant si le quiz a été soumis (validé)
+    // et non plus si une simple réponse a été sélectionnée.
+    final isQuizSubmitted = quizState.status == QuizStatus.submitted;
+
+    // Condition 2 : L'élève a-t-il téléversé au moins un fichier (et l'upload est terminé) ?
+    final isFileUploaded = submissionContent.any(
+      (b) => b.uploadStatus == UploadStatus.completed,
+    );
+
+    bool isReadyToSubmit = false;
+
+    // Cas 1 : Placeholder ET Quiz
+    if (hasSubmissionPlaceholder && hasQuiz) {
+      isReadyToSubmit = isFileUploaded && isQuizSubmitted;
+      // Cas 2 : Placeholder seulement
+    } else if (hasSubmissionPlaceholder) {
+      isReadyToSubmit = isFileUploaded;
+      // Cas 3 : Quiz seulement
+    } else if (hasQuiz) {
+      isReadyToSubmit = isQuizSubmitted;
+      // Cas 4 : Ni placeholder, ni quiz (l'élève doit juste confirmer la lecture)
+    } else {
+      isReadyToSubmit = true;
+    }
+
+    final bool canSubmit = submission == null;
 
     return Card(
       margin: const EdgeInsets.all(16.0),
@@ -191,19 +231,14 @@ class AssignmentViewWidget extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Affiche le statut du rendu.
             _buildStatusChip(context, submission),
             const SizedBox(height: 16),
-
-            // Affiche la date d'échéance si elle existe.
             if (lesson.dueDate != null)
               _buildInfoRow(
                 Icons.calendar_today_outlined,
                 'À rendre avant le :',
                 DateFormat('dd/MM/yyyy à HH:mm').format(lesson.dueDate!),
               ),
-
-            // Affiche la date de soumission si le travail a été rendu.
             if (submission != null)
               _buildInfoRow(
                 Icons.check_circle_outline,
@@ -212,24 +247,22 @@ class AssignmentViewWidget extends StatelessWidget {
                   'dd/MM/yyyy à HH:mm',
                 ).format(submission.submissionDate),
               ),
-
-            // Affiche la note si elle a été attribuée.
             if (submission?.grade != null)
               _buildInfoRow(
                 Icons.star_border_purple500_outlined,
                 'Note :',
                 '${submission!.grade!.toStringAsFixed(1)} / 20.0',
               ),
-
             const Divider(height: 32),
-
-            // Affiche le bouton pour rendre le devoir ou un message si c'est déjà fait.
             Center(
-              child: submission == null
+              child: canSubmit
                   ? FilledButton.icon(
                       icon: const Icon(Icons.upload_file),
                       label: const Text('Confirmer et Rendre le Travail'),
-                      onPressed: () => _confirmSubmission(context),
+                      // Le bouton est activé si `canSubmit` ET `isReadyToSubmit` sont vrais.
+                      onPressed: canSubmit && isReadyToSubmit
+                          ? () => _confirmSubmission(context)
+                          : null,
                     )
                   : const Text(
                       'Votre travail a été rendu et ne peut plus être modifié.',
@@ -246,7 +279,6 @@ class AssignmentViewWidget extends StatelessWidget {
     );
   }
 
-  // Affiche une boîte de dialogue de confirmation avant la soumission.
   void _confirmSubmission(BuildContext context) {
     showDialog(
       context: context,
@@ -267,15 +299,11 @@ class AssignmentViewWidget extends StatelessWidget {
                   .state
                   .user
                   .id;
-              // Pour l'instant, le contenu est vide, car il n'y a pas d'éditeur
-              // pour que l'élève puisse écrire quelque chose.
-              // C'est une prochaine étape logique du développement.
               context.read<LessonDetailBloc>().add(
                 SubmitAssignment(
                   lessonId: lesson.id,
                   courseId: int.parse(courseId),
                   studentId: studentId,
-                  content: [], // Le contenu du rendu sera ajouté plus tard.
                 ),
               );
               Navigator.pop(dialogContext);
@@ -287,7 +315,6 @@ class AssignmentViewWidget extends StatelessWidget {
     );
   }
 
-  // Widget pour afficher une ligne d'information (icône, label, valeur).
   Widget _buildInfoRow(IconData icon, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -302,12 +329,10 @@ class AssignmentViewWidget extends StatelessWidget {
     );
   }
 
-  // Widget pour afficher la puce de statut (Noté, Rendu, À rendre).
   Widget _buildStatusChip(BuildContext context, SubmissionEntity? submission) {
     String label;
     Color color;
     IconData icon;
-
     if (submission?.status == 'graded') {
       label = 'Noté';
       color = Colors.green;
@@ -321,7 +346,6 @@ class AssignmentViewWidget extends StatelessWidget {
       color = Colors.orange;
       icon = Icons.pending_actions;
     }
-
     return Chip(
       avatar: Icon(icon, color: Colors.white, size: 18),
       label: Text(
@@ -338,202 +362,86 @@ class AssignmentViewWidget extends StatelessWidget {
 }
 
 // =======================================================================
-// WIDGET POUR LE BLOC QUIZ (INCHANGÉ MAIS NÉCESSAIRE POUR LA COMPILATION)
+// WIDGET POUR LE PLACEHOLDER DE RENDU
 // =======================================================================
-class QuizBlockWidget extends StatelessWidget {
-  final int lessonId;
+class SubmissionPlaceholderWidget extends StatelessWidget {
+  const SubmissionPlaceholderWidget({super.key});
 
-  const QuizBlockWidget({super.key, required this.lessonId});
+  Future<void> _pickAndUploadFile(BuildContext context) async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles();
+
+    if (result != null) {
+      final file = XFile(result.files.single.path!);
+      if (context.mounted) {
+        context.read<LessonDetailBloc>().add(UploadSubmissionFile(file));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final studentId = context.read<AuthenticationBloc>().state.user.id;
+    return BlocBuilder<LessonDetailBloc, LessonDetailState>(
+      builder: (context, state) {
+        if (state is! LessonDetailLoaded) {
+          return const SizedBox.shrink();
+        }
 
-    return BlocProvider(
-      create: (context) =>
-          sl<QuizBloc>()
-            ..add(FetchQuiz(lessonId: lessonId, studentId: studentId)),
-      child: BlocBuilder<QuizBloc, QuizState>(
-        builder: (context, state) {
-          switch (state.status) {
-            case QuizStatus.loading:
-              return const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: CircularProgressIndicator(),
-                ),
-              );
-            case QuizStatus.failure:
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Text(
-                    "Erreur : ${state.error}",
-                    style: const TextStyle(color: Colors.red),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              );
-            case QuizStatus.submitted:
-              return _buildQuizResult(context, state);
-            case QuizStatus.loaded:
-              if (!state.canAttemptQuiz) {
-                return _buildAttemptsExceeded(context);
-              }
-              return _buildQuizForm(context, state);
-            case QuizStatus.initial:
-            default:
-              return const SizedBox.shrink();
-          }
-        },
-      ),
-    );
-  }
+        if (state.lesson.submission != null) {
+          return const SizedBox.shrink();
+        }
 
-  Widget _buildQuizForm(BuildContext context, QuizState state) {
-    return Card(
-      margin: const EdgeInsets.all(16.0),
-      elevation: 4,
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              state.quiz.title,
-              style: Theme.of(context).textTheme.headlineSmall,
-              textAlign: TextAlign.center,
-            ),
-            if (state.quiz.description != null &&
-                state.quiz.description!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: Text(
-                  state.quiz.description!,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            const Divider(height: 32),
-            ...state.quiz.questions.map((question) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      question.text,
-                      style: Theme.of(context).textTheme.titleMedium,
+        return Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ...state.submissionContent.map((block) {
+                return Card(
+                  elevation: 1,
+                  child: ListTile(
+                    leading: block.uploadStatus == UploadStatus.uploading
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.insert_drive_file_outlined),
+                    title: Text(block.metadata['fileName'] ?? 'Fichier'),
+                    subtitle: Text(
+                      block.uploadStatus.name,
+                      style: TextStyle(
+                        color: block.uploadStatus == UploadStatus.failed
+                            ? Colors.red
+                            : null,
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                    ...question.answers.map((answer) {
-                      return RadioListTile<int>(
-                        title: Text(answer.text),
-                        value: answer.id,
-                        groupValue: state.userAnswers[question.id],
-                        onChanged: (value) {
-                          if (value != null) {
-                            context.read<QuizBloc>().add(
-                              AnswerSelected(
-                                questionId: question.id,
-                                answerId: value,
-                              ),
-                            );
-                          }
-                        },
-                      );
-                    }),
-                  ],
-                ),
-              );
-            }).toList(),
-            const SizedBox(height: 16),
-            Center(
-              child: FilledButton(
-                onPressed: () {
-                  final studentId = context
-                      .read<AuthenticationBloc>()
-                      .state
-                      .user
-                      .id;
-                  context.read<QuizBloc>().add(
-                    SubmitQuiz(studentId: studentId, lessonId: lessonId),
-                  );
-                },
-                child: const Text("Valider mes réponses"),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close, size: 20),
+                      onPressed: () {
+                        context.read<LessonDetailBloc>().add(
+                          RemoveSubmissionFile(block.localId),
+                        );
+                      },
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.add_circle_outline),
+                label: const Text('Ajouter un fichier'),
+                onPressed: () => _pickAndUploadFile(context),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuizResult(BuildContext context, QuizState state) {
-    return Card(
-      margin: const EdgeInsets.all(16.0),
-      color: Colors.green.shade50,
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            Text(
-              "Quiz terminé !",
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(color: Colors.green.shade800),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              "Votre score :",
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            Text(
-              "${state.score?.toStringAsFixed(0) ?? '0'}%",
-              style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                color: Colors.green.shade900,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAttemptsExceeded(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.all(16.0),
-      color: Colors.orange.shade50,
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            Icon(Icons.info_outline, color: Colors.orange.shade800, size: 40),
-            const SizedBox(height: 16),
-            Text(
-              "Tentatives épuisées",
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: Colors.orange.shade800,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "Vous avez déjà atteint le nombre maximum de tentatives pour ce quiz.",
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
 
 // =======================================================================
-// WIDGETS DE VISUALISATION (INCHANGÉS)
+// WIDGETS DE VISUALISATION (Inchangés)
 // =======================================================================
 class ImageWidget extends StatelessWidget {
   final String? imageUrl;
@@ -735,6 +643,191 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
       child: AspectRatio(
         aspectRatio: 16 / 9,
         child: Chewie(controller: _chewieController!),
+      ),
+    );
+  }
+}
+
+class QuizBlockWidget extends StatelessWidget {
+  final int lessonId;
+
+  const QuizBlockWidget({super.key, required this.lessonId});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<QuizBloc, QuizState>(
+      builder: (context, state) {
+        switch (state.status) {
+          case QuizStatus.loading:
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16.0),
+                child: CircularProgressIndicator(),
+              ),
+            );
+          case QuizStatus.failure:
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(
+                  "Erreur : ${state.error}",
+                  style: const TextStyle(color: Colors.red),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          case QuizStatus.submitted:
+            return _buildQuizResult(context, state);
+          case QuizStatus.loaded:
+            if (!state.canAttemptQuiz) {
+              return _buildAttemptsExceeded(context);
+            }
+            return _buildQuizForm(context, state);
+          case QuizStatus.initial:
+          default:
+            return const SizedBox.shrink();
+        }
+      },
+    );
+  }
+
+  Widget _buildQuizForm(BuildContext context, QuizState state) {
+    return Card(
+      margin: const EdgeInsets.all(16.0),
+      elevation: 4,
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              state.quiz.title,
+              style: Theme.of(context).textTheme.headlineSmall,
+              textAlign: TextAlign.center,
+            ),
+            if (state.quiz.description != null &&
+                state.quiz.description!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  state.quiz.description!,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            const Divider(height: 32),
+            ...state.quiz.questions.map((question) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      question.text,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    ...question.answers.map((answer) {
+                      return RadioListTile<int>(
+                        title: Text(answer.text),
+                        value: answer.id,
+                        groupValue: state.userAnswers[question.id],
+                        onChanged: (value) {
+                          if (value != null) {
+                            context.read<QuizBloc>().add(
+                              AnswerSelected(
+                                questionId: question.id,
+                                answerId: value,
+                              ),
+                            );
+                          }
+                        },
+                      );
+                    }),
+                  ],
+                ),
+              );
+            }).toList(),
+            const SizedBox(height: 16),
+            Center(
+              child: FilledButton(
+                onPressed: () {
+                  final studentId = context
+                      .read<AuthenticationBloc>()
+                      .state
+                      .user
+                      .id;
+                  context.read<QuizBloc>().add(
+                    SubmitQuiz(studentId: studentId, lessonId: lessonId),
+                  );
+                },
+                child: const Text("Valider mes réponses"),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuizResult(BuildContext context, QuizState state) {
+    return Card(
+      margin: const EdgeInsets.all(16.0),
+      color: Colors.green.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          children: [
+            Text(
+              "Quiz terminé !",
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(color: Colors.green.shade800),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              "Votre score :",
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            Text(
+              "${state.score?.toStringAsFixed(0) ?? '0'}%",
+              style: Theme.of(context).textTheme.displayMedium?.copyWith(
+                color: Colors.green.shade900,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttemptsExceeded(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.all(16.0),
+      color: Colors.orange.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          children: [
+            Icon(Icons.info_outline, color: Colors.orange.shade800, size: 40),
+            const SizedBox(height: 16),
+            Text(
+              "Tentatives épuisées",
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: Colors.orange.shade800,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Vous avez déjà atteint le nombre maximum de tentatives pour ce quiz.",
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ),
       ),
     );
   }
