@@ -11,6 +11,9 @@ import 'dart:convert';
 // ENTITIES
 //==============================================================================
 
+// --- Entités SectionEntity, UploadStatus, ContentBlockType, ContentBlockEntity,
+// --- LessonType, SubmissionEntity, LessonEntity, AnswerEntity, QuestionEntity,
+// --- et QuizEntity sont INCHANGÉES.
 class SectionEntity extends Equatable {
   final int id;
   final String title;
@@ -406,8 +409,57 @@ class QuizEntity extends Equatable {
   List<Object?> get props => [id, title, description, questions];
 }
 
+// --- NOUVELLE ENTITÉ ---
+/// Représente les détails d'une tentative de quiz sauvegardée.
+class QuizAttemptEntity extends Equatable {
+  final int attemptId;
+  final double score;
+  final int totalQuestions;
+  final int correctAnswers;
+  final DateTime attemptDate;
+  // Map<QuestionID, SelectedAnswerID>
+  final Map<int, int> answers;
+
+  const QuizAttemptEntity({
+    required this.attemptId,
+    required this.score,
+    required this.totalQuestions,
+    required this.correctAnswers,
+    required this.attemptDate,
+    required this.answers,
+  });
+
+  factory QuizAttemptEntity.fromJson(Map<String, dynamic> json) {
+    final answersMap = <int, int>{};
+    if (json['answers'] != null) {
+      for (var answerData in (json['answers'] as List)) {
+        answersMap[answerData['question_id']] =
+            answerData['selected_answer_id'];
+      }
+    }
+    return QuizAttemptEntity(
+      attemptId: json['attempt_id'],
+      score: (json['score'] as num).toDouble(),
+      totalQuestions: json['total_questions'],
+      correctAnswers: json['correct_answers'],
+      attemptDate: DateTime.parse(json['attempt_date']),
+      answers: answersMap,
+    );
+  }
+
+  @override
+  List<Object?> get props => [
+    attemptId,
+    score,
+    totalQuestions,
+    correctAnswers,
+    attemptDate,
+    answers,
+  ];
+}
+
 //==============================================================================
-// COURSE CONTENT BLOC
+// COURSE CONTENT BLOC (INCHANGÉ)
 //==============================================================================
 abstract class CourseContentEvent extends Equatable {
   const CourseContentEvent();
@@ -486,7 +538,7 @@ class CourseContentBloc extends Bloc<CourseContentEvent, CourseContentState> {
 }
 
 //==============================================================================
-// LESSON DETAIL BLOC
+// LESSON DETAIL BLOC (INCHANGÉ)
 //==============================================================================
 abstract class LessonDetailEvent extends Equatable {
   const LessonDetailEvent();
@@ -721,7 +773,7 @@ class LessonDetailBloc extends Bloc<LessonDetailEvent, LessonDetailState> {
 }
 
 //==============================================================================
-// QUIZ BLOC
+// QUIZ BLOC (MODIFIÉ)
 //==============================================================================
 
 abstract class QuizEvent extends Equatable {
@@ -748,40 +800,53 @@ class SubmitQuiz extends QuizEvent {
   const SubmitQuiz({required this.studentId, required this.lessonId});
 }
 
-enum QuizStatus { initial, loading, loaded, submitted, failure }
+// --- NOUVEL ÉVÉNEMENT ---
+/// Événement pour recommencer le quiz.
+class RestartQuiz extends QuizEvent {}
+
+// --- ÉTAT MIS À JOUR ---
+enum QuizStatus {
+  initial,
+  loading,
+  loaded, // En train de répondre
+  submitted, // A été soumis, en attente de la réponse du serveur
+  showingResult, // Affiche le résultat d'une tentative précédente
+  failure,
+}
 
 class QuizState extends Equatable {
   final QuizStatus status;
   final QuizEntity quiz;
-  final Map<int, int> userAnswers;
-  final double? score;
+  final Map<int, int> userAnswers; // Réponses de la tentative en cours
   final String error;
   final bool canAttemptQuiz;
+  final QuizAttemptEntity? lastAttempt; // Détails de la dernière tentative
 
   const QuizState({
     this.status = QuizStatus.initial,
     this.quiz = const QuizEntity(id: 0, title: '', questions: []),
     this.userAnswers = const {},
-    this.score,
     this.error = '',
     this.canAttemptQuiz = true,
+    this.lastAttempt,
   });
 
   QuizState copyWith({
     QuizStatus? status,
     QuizEntity? quiz,
     Map<int, int>? userAnswers,
-    double? score,
     String? error,
     bool? canAttemptQuiz,
+    QuizAttemptEntity? lastAttempt,
+    bool clearLastAttempt = false, // Pour effacer la dernière tentative
   }) {
     return QuizState(
       status: status ?? this.status,
       quiz: quiz ?? this.quiz,
       userAnswers: userAnswers ?? this.userAnswers,
-      score: score,
       error: error ?? this.error,
       canAttemptQuiz: canAttemptQuiz ?? this.canAttemptQuiz,
+      lastAttempt: clearLastAttempt ? null : lastAttempt ?? this.lastAttempt,
     );
   }
 
@@ -790,9 +855,9 @@ class QuizState extends Equatable {
     status,
     quiz,
     userAnswers,
-    score,
     error,
     canAttemptQuiz,
+    lastAttempt,
   ];
 }
 
@@ -803,11 +868,13 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
     on<FetchQuiz>(_onFetchQuiz);
     on<AnswerSelected>(_onAnswerSelected);
     on<SubmitQuiz>(_onSubmitQuiz);
+    on<RestartQuiz>(_onRestartQuiz); // Enregistrement du nouvel événement
   }
 
   Future<void> _onFetchQuiz(FetchQuiz event, Emitter<QuizState> emit) async {
     emit(state.copyWith(status: QuizStatus.loading));
     try {
+      // 1. Récupérer les détails de la leçon pour trouver le quizId et les métadonnées
       final lessonResponse = await apiClient.get(
         '/api/v1/get_lesson_details.php',
         queryParameters: {
@@ -818,47 +885,68 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
       final lesson = LessonEntity.fromJson(lessonResponse.data);
       final quizBlock = lesson.contentBlocks.firstWhere(
         (b) => b.blockType == ContentBlockType.quiz,
-        orElse: () =>
-            throw Exception("Aucun bloc de type quiz trouvé dans cette leçon."),
+        orElse: () => throw Exception("Aucun bloc de quiz trouvé."),
       );
       final quizId = int.parse(quizBlock.content);
-      final maxAttempts =
-          (quizBlock.metadata['max_attempts'] as num?)?.toInt() ?? -1;
 
-      final historyResponse = await apiClient.get(
-        '/api/v1/get_quiz_history.php',
-        queryParameters: {'student_id': event.studentId, 'quiz_id': quizId},
-      );
-      final attempts = (historyResponse.data as List);
-      final attemptsCount = attempts.length;
-
-      bool canAttempt = true;
-      if (maxAttempts == 0) {
-        if (attemptsCount >= 1) {
-          canAttempt = false;
-        }
-      } else if (maxAttempts != -1 && attemptsCount >= maxAttempts) {
-        canAttempt = false;
-      }
-
+      // 2. Récupérer le contenu du quiz
       final quizResponse = await apiClient.get(
         '/api/v1/get_quiz_details.php',
         queryParameters: {'quiz_id': quizId},
       );
       final quiz = QuizEntity.fromJson(quizResponse.data);
 
-      emit(
-        state.copyWith(
-          status: QuizStatus.loaded,
-          quiz: quiz,
-          canAttemptQuiz: canAttempt,
-        ),
+      // 3. Vérifier l'historique des tentatives
+      final historyResponse = await apiClient.get(
+        '/api/v1/get_quiz_history.php',
+        queryParameters: {'student_id': event.studentId, 'quiz_id': quizId},
       );
+      final attemptsCount = (historyResponse.data as List).length;
+      final maxAttempts =
+          (quizBlock.metadata['max_attempts'] as num?)?.toInt() ?? -1;
+
+      bool canAttempt = (maxAttempts == -1 || attemptsCount < maxAttempts);
+      if (maxAttempts == 0 && attemptsCount >= 1) {
+        canAttempt = false;
+      }
+
+      // 4. Récupérer la dernière tentative détaillée
+      final lastAttemptResponse = await apiClient.get(
+        '/api/v1/get_last_quiz_attempt.php',
+        queryParameters: {'student_id': event.studentId, 'quiz_id': quizId},
+      );
+
+      QuizAttemptEntity? lastAttempt;
+      if (lastAttemptResponse.data != null) {
+        lastAttempt = QuizAttemptEntity.fromJson(lastAttemptResponse.data);
+      }
+
+      // 5. Déterminer l'état initial
+      if (lastAttempt != null) {
+        // Si une tentative existe, on affiche les résultats directement
+        emit(
+          state.copyWith(
+            status: QuizStatus.showingResult,
+            quiz: quiz,
+            lastAttempt: lastAttempt,
+            canAttemptQuiz: canAttempt,
+          ),
+        );
+      } else {
+        // Sinon, on charge le quiz pour une nouvelle tentative
+        emit(
+          state.copyWith(
+            status: QuizStatus.loaded,
+            quiz: quiz,
+            canAttemptQuiz: canAttempt,
+          ),
+        );
+      }
     } catch (e) {
       emit(
         state.copyWith(
           status: QuizStatus.failure,
-          error: "Erreur lors du chargement du quiz : ${e.toString()}",
+          error: "Erreur chargement quiz : ${e.toString()}",
         ),
       );
     }
@@ -871,13 +959,14 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
   }
 
   Future<void> _onSubmitQuiz(SubmitQuiz event, Emitter<QuizState> emit) async {
-    emit(state.copyWith(status: QuizStatus.loading));
+    // On passe à `submitted` pour l'indicateur de chargement
+    emit(state.copyWith(status: QuizStatus.submitted));
     try {
       final answersWithStringKeys = state.userAnswers.map((key, value) {
         return MapEntry(key.toString(), value);
       });
 
-      final response = await apiClient.post(
+      await apiClient.post(
         '/api/v1/submit_quiz.php',
         data: {
           'student_id': event.studentId,
@@ -887,35 +976,25 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
         },
       );
 
-      final score = (response.data['score'] as num).toDouble();
-
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('quiz_completed_${event.lessonId}', true);
-      } on PlatformException catch (e) {
-        print(
-          "AVERTISSEMENT: Échec de la sauvegarde locale du statut du quiz (PlatformException): $e",
-        );
-      } catch (e) {
-        print(
-          "AVERTISSEMENT: Échec de la sauvegarde locale du statut du quiz (Erreur inconnue): $e",
-        );
-      }
-
-      emit(
-        state.copyWith(
-          status: QuizStatus.submitted,
-          score: score,
-          canAttemptQuiz: false,
-        ),
-      );
+      // Après la soumission, on refait un fetch complet pour obtenir le nouvel état
+      add(FetchQuiz(lessonId: event.lessonId, studentId: event.studentId));
     } catch (e) {
       emit(
         state.copyWith(
           status: QuizStatus.failure,
-          error: "Erreur lors de la soumission du quiz : ${e.toString()}",
+          error: "Erreur soumission quiz : ${e.toString()}",
         ),
       );
     }
+  }
+
+  void _onRestartQuiz(RestartQuiz event, Emitter<QuizState> emit) {
+    emit(
+      state.copyWith(
+        status: QuizStatus.loaded,
+        userAnswers: {},
+        clearLastAttempt: true, // On efface la tentative précédente de l'état
+      ),
+    );
   }
 }

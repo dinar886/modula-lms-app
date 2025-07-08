@@ -13,6 +13,8 @@ import 'package:modula_lms/features/course_player/course_player_logic.dart';
 import 'package:video_player/video_player.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 
+// Le reste de la page (LessonViewerPage, AssignmentViewWidget, etc.) est INCHANGÉ
+
 class LessonViewerPage extends StatelessWidget {
   final int lessonId;
   final String courseId;
@@ -198,7 +200,9 @@ class AssignmentViewWidget extends StatelessWidget {
 
     // [CORRECTION] : On vérifie maintenant si le quiz a été soumis (validé)
     // et non plus si une simple réponse a été sélectionnée.
-    final isQuizSubmitted = quizState.status == QuizStatus.submitted;
+    final isQuizSubmitted =
+        quizState.status == QuizStatus.submitted ||
+        quizState.status == QuizStatus.showingResult;
 
     // Condition 2 : L'élève a-t-il téléversé au moins un fichier (et l'upload est terminé) ?
     final isFileUploaded = submissionContent.any(
@@ -648,6 +652,9 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
   }
 }
 
+// =======================================================================
+// WIDGET DU QUIZ (FORTEMENT MODIFIÉ)
+// =======================================================================
 class QuizBlockWidget extends StatelessWidget {
   final int lessonId;
 
@@ -659,12 +666,30 @@ class QuizBlockWidget extends StatelessWidget {
       builder: (context, state) {
         switch (state.status) {
           case QuizStatus.loading:
+          case QuizStatus.initial:
             return const Center(
               child: Padding(
                 padding: EdgeInsets.all(16.0),
                 child: CircularProgressIndicator(),
               ),
             );
+
+          case QuizStatus.submitted:
+            // Nouvel état pour l'attente de la réponse serveur
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text("Correction en cours..."),
+                  ],
+                ),
+              ),
+            );
+
           case QuizStatus.failure:
             return Center(
               child: Padding(
@@ -676,14 +701,17 @@ class QuizBlockWidget extends StatelessWidget {
                 ),
               ),
             );
-          case QuizStatus.submitted:
+
+          case QuizStatus.showingResult:
+            // État principal pour afficher les résultats détaillés
             return _buildQuizResult(context, state);
+
           case QuizStatus.loaded:
             if (!state.canAttemptQuiz) {
               return _buildAttemptsExceeded(context);
             }
             return _buildQuizForm(context, state);
-          case QuizStatus.initial:
+
           default:
             return const SizedBox.shrink();
         }
@@ -691,6 +719,7 @@ class QuizBlockWidget extends StatelessWidget {
     );
   }
 
+  // --- Widget pour le formulaire du quiz (répondre aux questions) ---
   Widget _buildQuizForm(BuildContext context, QuizState state) {
     return Card(
       margin: const EdgeInsets.all(16.0),
@@ -771,38 +800,130 @@ class QuizBlockWidget extends StatelessWidget {
     );
   }
 
+  // --- NOUVEAU WIDGET : Pour afficher le résultat détaillé du quiz ---
   Widget _buildQuizResult(BuildContext context, QuizState state) {
+    final attempt = state.lastAttempt;
+    if (attempt == null) {
+      return const Center(child: Text("Aucune donnée de tentative trouvée."));
+    }
+
     return Card(
       margin: const EdgeInsets.all(16.0),
-      color: Colors.green.shade50,
+      elevation: 4,
+      clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // En-tête avec le score
             Text(
-              "Quiz terminé !",
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(color: Colors.green.shade800),
+              "Résultats du Quiz",
+              style: Theme.of(context).textTheme.headlineSmall,
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
-            Text(
-              "Votre score :",
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            Text(
-              "${state.score?.toStringAsFixed(0) ?? '0'}%",
-              style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                color: Colors.green.shade900,
-                fontWeight: FontWeight.bold,
+            Center(
+              child: Chip(
+                label: Text(
+                  'Score : ${attempt.score.toStringAsFixed(1)} / 20.0',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                backgroundColor: attempt.score >= 10
+                    ? Colors.green
+                    : Colors.red,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
               ),
             ),
+            const Divider(height: 32),
+
+            // Liste des questions avec la correction
+            ...state.quiz.questions.map((question) {
+              final selectedAnswerId = attempt.answers[question.id];
+              final correctAnswer = question.answers.firstWhere(
+                (a) => a.isCorrect,
+              );
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 24.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      question.text,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    ...question.answers.map((answer) {
+                      final bool isSelected = answer.id == selectedAnswerId;
+                      final bool isCorrect = answer.isCorrect;
+
+                      Color? tileColor;
+                      Icon? trailingIcon;
+
+                      if (isCorrect) {
+                        tileColor = Colors.green.withOpacity(0.15);
+                        trailingIcon = const Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                        );
+                      }
+                      if (isSelected && !isCorrect) {
+                        tileColor = Colors.red.withOpacity(0.15);
+                        trailingIcon = const Icon(
+                          Icons.cancel,
+                          color: Colors.red,
+                        );
+                      }
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 4),
+                        decoration: BoxDecoration(
+                          color: tileColor,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: ListTile(
+                          title: Text(answer.text),
+                          leading: Radio<int>(
+                            value: answer.id,
+                            groupValue: selectedAnswerId,
+                            onChanged: null, // Désactivé en mode résultat
+                          ),
+                          trailing: trailingIcon,
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              );
+            }),
+
+            // Bouton pour recommencer si possible
+            if (state.canAttemptQuiz) ...[
+              const Divider(height: 32),
+              Center(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.refresh),
+                  label: const Text("Recommencer le Quiz"),
+                  onPressed: () {
+                    context.read<QuizBloc>().add(RestartQuiz());
+                  },
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
+  // --- Widget pour le message "Tentatives épuisées" (INCHANGÉ) ---
   Widget _buildAttemptsExceeded(BuildContext context) {
     return Card(
       margin: const EdgeInsets.all(16.0),
