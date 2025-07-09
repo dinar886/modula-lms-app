@@ -4,7 +4,7 @@
 // --- Configuration des logs et des en-têtes ---
 ini_set('log_errors', 1);
 // Crée un fichier de log dans le même dossier que le script.
-ini_set('error_log', __DIR__ . '/error_log.txt'); 
+ini_set('error_log', __DIR__ . '/error_log.txt');
 
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
@@ -68,22 +68,30 @@ try {
     $stmt->bind_param("i", $quiz_id);
     $stmt->execute();
     $stmt->close();
-    
+
     // --- Étape 3 : Insérer les nouvelles questions et réponses ---
     foreach ($data->questions as $q_index => $question) {
         $question_text = $conn->real_escape_string($question->question_text);
-        
-        $stmt_q = $conn->prepare("INSERT INTO questions (quiz_id, question_text, order_index) VALUES (?, ?, ?)");
-        $stmt_q->bind_param("isi", $quiz_id, $question_text, $q_index);
+        // MODIFICATION : On récupère le type et la réponse textuelle.
+        $question_type = $conn->real_escape_string($question->question_type);
+        $correct_text_answer = ($question_type === 'fill_in_the_blank' && isset($question->correct_text_answer))
+            ? $conn->real_escape_string($question->correct_text_answer)
+            : null;
+
+
+        // MODIFICATION : La requête d'insertion inclut les nouveaux champs.
+        $stmt_q = $conn->prepare("INSERT INTO questions (quiz_id, question_text, question_type, correct_text_answer, order_index) VALUES (?, ?, ?, ?, ?)");
+        $stmt_q->bind_param("isssi", $quiz_id, $question_text, $question_type, $correct_text_answer, $q_index);
         $stmt_q->execute();
         $new_question_id = $conn->insert_id;
         $stmt_q->close();
 
-        if (isset($question->answers) && is_array($question->answers)) {
+        // On n'insère des réponses que si c'est un QCM.
+        if ($question_type === 'mcq' && isset($question->answers) && is_array($question->answers)) {
             foreach ($question->answers as $answer) {
                 $answer_text = $conn->real_escape_string($answer->answer_text);
                 $is_correct = (isset($answer->is_correct) && $answer->is_correct) ? 1 : 0;
-                
+
                 $stmt_a = $conn->prepare("INSERT INTO answers (question_id, answer_text, is_correct) VALUES (?, ?, ?)");
                 $stmt_a->bind_param("isi", $new_question_id, $answer_text, $is_correct);
                 $stmt_a->execute();
@@ -94,7 +102,7 @@ try {
 
     // --- Validation finale ---
     $conn->commit();
-    
+
     http_response_code(200);
     echo json_encode(["message" => "Quiz sauvegardé avec succès.", "quiz_id" => $quiz_id]);
 

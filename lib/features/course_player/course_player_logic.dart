@@ -11,9 +11,7 @@ import 'dart:convert';
 // ENTITIES
 //==============================================================================
 
-// --- Entités SectionEntity, UploadStatus, ContentBlockType, ContentBlockEntity,
-// --- LessonType, SubmissionEntity, LessonEntity, AnswerEntity, QuestionEntity,
-// --- et QuizEntity sont INCHANGÉES.
+// --- Les entités précédentes sont inchangées, seule QuizAttemptEntity change ---
 class SectionEntity extends Equatable {
   final int id;
   final String title;
@@ -155,9 +153,7 @@ class SubmissionEntity extends Equatable {
     this.instructorFeedback,
   });
 
-  // ✅ CORRECTION APPLIQUÉE ICI
   factory SubmissionEntity.fromJson(Map<String, dynamic> json) {
-    // Le champ 'content' arrive déjà décodé du PHP. On le traite directement comme une liste.
     return SubmissionEntity(
       id: json['id'],
       submissionDate: DateTime.parse(json['submission_date']),
@@ -313,14 +309,20 @@ class AnswerEntity extends Equatable {
   List<Object?> get props => [id, text, isCorrect];
 }
 
+enum QuestionType { mcq, fill_in_the_blank }
+
 class QuestionEntity extends Equatable {
   final int id;
   final String text;
+  final QuestionType questionType;
+  final String? correctTextAnswer;
   final List<AnswerEntity> answers;
 
   const QuestionEntity({
     required this.id,
     required this.text,
+    required this.questionType,
+    this.correctTextAnswer,
     required this.answers,
   });
 
@@ -328,6 +330,8 @@ class QuestionEntity extends Equatable {
     return QuestionEntity(
       id: json['id'],
       text: json['question_text'],
+      questionType: _questionTypeFromString(json['question_type']),
+      correctTextAnswer: json['correct_text_answer'],
       answers: (json['answers'] as List)
           .map((answerJson) => AnswerEntity.fromJson(answerJson))
           .toList(),
@@ -338,6 +342,8 @@ class QuestionEntity extends Equatable {
     return {
       'id': id > 1000000000 ? 0 : id,
       'question_text': text,
+      'question_type': questionType.name,
+      'correct_text_answer': correctTextAnswer,
       'answers': answers.map((a) => a.toJson()).toList(),
     };
   }
@@ -345,17 +351,34 @@ class QuestionEntity extends Equatable {
   QuestionEntity copyWith({
     int? id,
     String? text,
+    QuestionType? questionType,
+    String? correctTextAnswer,
     List<AnswerEntity>? answers,
   }) {
     return QuestionEntity(
       id: id ?? this.id,
       text: text ?? this.text,
+      questionType: questionType ?? this.questionType,
+      correctTextAnswer: correctTextAnswer ?? this.correctTextAnswer,
       answers: answers ?? this.answers,
     );
   }
 
+  static QuestionType _questionTypeFromString(String type) {
+    return QuestionType.values.firstWhere(
+      (e) => e.name == type,
+      orElse: () => QuestionType.mcq,
+    );
+  }
+
   @override
-  List<Object?> get props => [id, text, answers];
+  List<Object?> get props => [
+    id,
+    text,
+    questionType,
+    correctTextAnswer,
+    answers,
+  ];
 }
 
 class QuizEntity extends Equatable {
@@ -409,16 +432,14 @@ class QuizEntity extends Equatable {
   List<Object?> get props => [id, title, description, questions];
 }
 
-// --- NOUVELLE ENTITÉ ---
-/// Représente les détails d'une tentative de quiz sauvegardée.
 class QuizAttemptEntity extends Equatable {
   final int attemptId;
   final double score;
   final int totalQuestions;
   final int correctAnswers;
   final DateTime attemptDate;
-  // Map<QuestionID, SelectedAnswerID>
-  final Map<int, int> answers;
+  // Map<QuestionID, dynamic> pour stocker soit l'ID (int) soit le texte (String)
+  final Map<int, dynamic> answers;
 
   const QuizAttemptEntity({
     required this.attemptId,
@@ -430,11 +451,17 @@ class QuizAttemptEntity extends Equatable {
   });
 
   factory QuizAttemptEntity.fromJson(Map<String, dynamic> json) {
-    final answersMap = <int, int>{};
+    final answersMap = <int, dynamic>{};
     if (json['answers'] != null) {
       for (var answerData in (json['answers'] as List)) {
-        answersMap[answerData['question_id']] =
-            answerData['selected_answer_id'];
+        // Si `selected_text_answer` n'est pas null, on le stocke. Sinon, on stocke `selected_answer_id`.
+        if (answerData['selected_text_answer'] != null) {
+          answersMap[answerData['question_id']] =
+              answerData['selected_text_answer'];
+        } else {
+          answersMap[answerData['question_id']] =
+              answerData['selected_answer_id'];
+        }
       }
     }
     return QuizAttemptEntity(
@@ -538,7 +565,7 @@ class CourseContentBloc extends Bloc<CourseContentEvent, CourseContentState> {
 }
 
 //==============================================================================
-// LESSON DETAIL BLOC (INCHANGÉ)
+// LESSON DETAIL BLOC (MODIFIÉ)
 //==============================================================================
 abstract class LessonDetailEvent extends Equatable {
   const LessonDetailEvent();
@@ -550,6 +577,14 @@ class FetchLessonDetails extends LessonDetailEvent {
   final int lessonId;
   final String studentId;
   const FetchLessonDetails({required this.lessonId, required this.studentId});
+}
+
+// NOUVEL ÉVÉNEMENT pour marquer un quiz comme terminé dans la leçon.
+class QuizCompletedInLesson extends LessonDetailEvent {
+  final int quizId;
+  const QuizCompletedInLesson(this.quizId);
+  @override
+  List<Object?> get props => [quizId];
 }
 
 class SubmitAssignment extends LessonDetailEvent {
@@ -590,20 +625,28 @@ class LessonDetailLoading extends LessonDetailState {}
 
 class LessonDetailLoaded extends LessonDetailState {
   final LessonEntity lesson;
-  final List<ContentBlockEntity> submissionContent; // Contenu du rendu
+  final List<ContentBlockEntity> submissionContent;
+  // NOUVEAU : On stocke les IDs des quiz terminés.
+  final Set<int> completedQuizIds;
 
-  const LessonDetailLoaded(this.lesson, {this.submissionContent = const []});
+  const LessonDetailLoaded(
+    this.lesson, {
+    this.submissionContent = const [],
+    this.completedQuizIds = const {},
+  });
 
   @override
-  List<Object> get props => [lesson, submissionContent];
+  List<Object> get props => [lesson, submissionContent, completedQuizIds];
 
   LessonDetailLoaded copyWith({
     LessonEntity? lesson,
     List<ContentBlockEntity>? submissionContent,
+    Set<int>? completedQuizIds,
   }) {
     return LessonDetailLoaded(
       lesson ?? this.lesson,
       submissionContent: submissionContent ?? this.submissionContent,
+      completedQuizIds: completedQuizIds ?? this.completedQuizIds,
     );
   }
 }
@@ -622,6 +665,7 @@ class LessonDetailBloc extends Bloc<LessonDetailEvent, LessonDetailState> {
 
   LessonDetailBloc({required this.apiClient}) : super(LessonDetailInitial()) {
     on<FetchLessonDetails>(_onFetchLessonDetails);
+    on<QuizCompletedInLesson>(_onQuizCompletedInLesson);
     on<SubmitAssignment>(_onSubmitAssignment);
     on<UploadSubmissionFile>(_onUploadSubmissionFile);
     on<RemoveSubmissionFile>(_onRemoveSubmissionFile);
@@ -654,6 +698,21 @@ class LessonDetailBloc extends Bloc<LessonDetailEvent, LessonDetailState> {
         ),
       );
     }
+  }
+
+  // NOUVEAU HANDLER : Met à jour l'état quand un quiz est terminé.
+  void _onQuizCompletedInLesson(
+    QuizCompletedInLesson event,
+    Emitter<LessonDetailState> emit,
+  ) {
+    if (state is! LessonDetailLoaded) return;
+    final loadedState = state as LessonDetailLoaded;
+
+    // On crée une nouvelle copie du Set pour garantir l'immutabilité.
+    final updatedQuizIds = Set<int>.from(loadedState.completedQuizIds);
+    updatedQuizIds.add(event.quizId);
+
+    emit(loadedState.copyWith(completedQuizIds: updatedQuizIds));
   }
 
   Future<void> _onSubmitAssignment(
@@ -783,9 +842,14 @@ abstract class QuizEvent extends Equatable {
 }
 
 class FetchQuiz extends QuizEvent {
-  final int lessonId;
+  final int quizId;
   final String studentId;
-  const FetchQuiz({required this.lessonId, required this.studentId});
+  final int maxAttempts;
+  const FetchQuiz({
+    required this.quizId,
+    required this.studentId,
+    required this.maxAttempts,
+  });
 }
 
 class AnswerSelected extends QuizEvent {
@@ -794,33 +858,31 @@ class AnswerSelected extends QuizEvent {
   const AnswerSelected({required this.questionId, required this.answerId});
 }
 
+// NOUVEL ÉVÉNEMENT pour les réponses textuelles
+class TextAnswerChanged extends QuizEvent {
+  final int questionId;
+  final String text;
+  const TextAnswerChanged({required this.questionId, required this.text});
+}
+
 class SubmitQuiz extends QuizEvent {
   final String studentId;
-  final int lessonId;
+  final int lessonId; // On garde lessonId pour la table quiz_attempts
   const SubmitQuiz({required this.studentId, required this.lessonId});
 }
 
-// --- NOUVEL ÉVÉNEMENT ---
-/// Événement pour recommencer le quiz.
 class RestartQuiz extends QuizEvent {}
 
-// --- ÉTAT MIS À JOUR ---
-enum QuizStatus {
-  initial,
-  loading,
-  loaded, // En train de répondre
-  submitted, // A été soumis, en attente de la réponse du serveur
-  showingResult, // Affiche le résultat d'une tentative précédente
-  failure,
-}
+enum QuizStatus { initial, loading, loaded, submitted, showingResult, failure }
 
 class QuizState extends Equatable {
   final QuizStatus status;
   final QuizEntity quiz;
-  final Map<int, int> userAnswers; // Réponses de la tentative en cours
+  // Les réponses peuvent être des int (ID de QCM) ou des String (texte à trous)
+  final Map<int, dynamic> userAnswers;
   final String error;
   final bool canAttemptQuiz;
-  final QuizAttemptEntity? lastAttempt; // Détails de la dernière tentative
+  final QuizAttemptEntity? lastAttempt;
 
   const QuizState({
     this.status = QuizStatus.initial,
@@ -834,11 +896,11 @@ class QuizState extends Equatable {
   QuizState copyWith({
     QuizStatus? status,
     QuizEntity? quiz,
-    Map<int, int>? userAnswers,
+    Map<int, dynamic>? userAnswers,
     String? error,
     bool? canAttemptQuiz,
     QuizAttemptEntity? lastAttempt,
-    bool clearLastAttempt = false, // Pour effacer la dernière tentative
+    bool clearLastAttempt = false,
   }) {
     return QuizState(
       status: status ?? this.status,
@@ -867,53 +929,45 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
   QuizBloc({required this.apiClient}) : super(const QuizState()) {
     on<FetchQuiz>(_onFetchQuiz);
     on<AnswerSelected>(_onAnswerSelected);
+    on<TextAnswerChanged>(_onTextAnswerChanged); // Nouvel handler
     on<SubmitQuiz>(_onSubmitQuiz);
-    on<RestartQuiz>(_onRestartQuiz); // Enregistrement du nouvel événement
+    on<RestartQuiz>(_onRestartQuiz);
   }
 
   Future<void> _onFetchQuiz(FetchQuiz event, Emitter<QuizState> emit) async {
     emit(state.copyWith(status: QuizStatus.loading));
     try {
-      // 1. Récupérer les détails de la leçon pour trouver le quizId et les métadonnées
-      final lessonResponse = await apiClient.get(
-        '/api/v1/get_lesson_details.php',
-        queryParameters: {
-          'lesson_id': event.lessonId,
-          'student_id': event.studentId,
-        },
-      );
-      final lesson = LessonEntity.fromJson(lessonResponse.data);
-      final quizBlock = lesson.contentBlocks.firstWhere(
-        (b) => b.blockType == ContentBlockType.quiz,
-        orElse: () => throw Exception("Aucun bloc de quiz trouvé."),
-      );
-      final quizId = int.parse(quizBlock.content);
-
-      // 2. Récupérer le contenu du quiz
+      // 1. Récupérer le contenu du quiz directement avec son ID
       final quizResponse = await apiClient.get(
         '/api/v1/get_quiz_details.php',
-        queryParameters: {'quiz_id': quizId},
+        queryParameters: {'quiz_id': event.quizId},
       );
       final quiz = QuizEntity.fromJson(quizResponse.data);
 
-      // 3. Vérifier l'historique des tentatives
+      // 2. Vérifier l'historique des tentatives
       final historyResponse = await apiClient.get(
         '/api/v1/get_quiz_history.php',
-        queryParameters: {'student_id': event.studentId, 'quiz_id': quizId},
+        queryParameters: {
+          'student_id': event.studentId,
+          'quiz_id': event.quizId,
+        },
       );
       final attemptsCount = (historyResponse.data as List).length;
-      final maxAttempts =
-          (quizBlock.metadata['max_attempts'] as num?)?.toInt() ?? -1;
 
-      bool canAttempt = (maxAttempts == -1 || attemptsCount < maxAttempts);
-      if (maxAttempts == 0 && attemptsCount >= 1) {
+      // Utilise le nombre de tentatives max passé en paramètre
+      bool canAttempt =
+          (event.maxAttempts == -1 || attemptsCount < event.maxAttempts);
+      if (event.maxAttempts == 0 && attemptsCount >= 1) {
         canAttempt = false;
       }
 
-      // 4. Récupérer la dernière tentative détaillée
+      // 3. Récupérer la dernière tentative détaillée
       final lastAttemptResponse = await apiClient.get(
         '/api/v1/get_last_quiz_attempt.php',
-        queryParameters: {'student_id': event.studentId, 'quiz_id': quizId},
+        queryParameters: {
+          'student_id': event.studentId,
+          'quiz_id': event.quizId,
+        },
       );
 
       QuizAttemptEntity? lastAttempt;
@@ -921,9 +975,8 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
         lastAttempt = QuizAttemptEntity.fromJson(lastAttemptResponse.data);
       }
 
-      // 5. Déterminer l'état initial
+      // 4. Déterminer l'état initial
       if (lastAttempt != null) {
-        // Si une tentative existe, on affiche les résultats directement
         emit(
           state.copyWith(
             status: QuizStatus.showingResult,
@@ -933,12 +986,12 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
           ),
         );
       } else {
-        // Sinon, on charge le quiz pour une nouvelle tentative
         emit(
           state.copyWith(
             status: QuizStatus.loaded,
             quiz: quiz,
             canAttemptQuiz: canAttempt,
+            userAnswers: {}, // On s'assure de vider les réponses précédentes
           ),
         );
       }
@@ -953,13 +1006,18 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
   }
 
   void _onAnswerSelected(AnswerSelected event, Emitter<QuizState> emit) {
-    final updatedAnswers = Map<int, int>.from(state.userAnswers);
+    final updatedAnswers = Map<int, dynamic>.from(state.userAnswers);
     updatedAnswers[event.questionId] = event.answerId;
     emit(state.copyWith(userAnswers: updatedAnswers));
   }
 
+  void _onTextAnswerChanged(TextAnswerChanged event, Emitter<QuizState> emit) {
+    final updatedAnswers = Map<int, dynamic>.from(state.userAnswers);
+    updatedAnswers[event.questionId] = event.text;
+    emit(state.copyWith(userAnswers: updatedAnswers));
+  }
+
   Future<void> _onSubmitQuiz(SubmitQuiz event, Emitter<QuizState> emit) async {
-    // On passe à `submitted` pour l'indicateur de chargement
     emit(state.copyWith(status: QuizStatus.submitted));
     try {
       final answersWithStringKeys = state.userAnswers.map((key, value) {
@@ -976,8 +1034,14 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
         },
       );
 
-      // Après la soumission, on refait un fetch complet pour obtenir le nouvel état
-      add(FetchQuiz(lessonId: event.lessonId, studentId: event.studentId));
+      // On refait un fetch pour obtenir le nouvel état complet avec les résultats
+      add(
+        FetchQuiz(
+          quizId: state.quiz.id,
+          studentId: event.studentId,
+          maxAttempts: -1, // La valeur ici n'est pas critique après soumission
+        ),
+      );
     } catch (e) {
       emit(
         state.copyWith(
@@ -993,7 +1057,7 @@ class QuizBloc extends Bloc<QuizEvent, QuizState> {
       state.copyWith(
         status: QuizStatus.loaded,
         userAnswers: {},
-        clearLastAttempt: true, // On efface la tentative précédente de l'état
+        clearLastAttempt: true,
       ),
     );
   }

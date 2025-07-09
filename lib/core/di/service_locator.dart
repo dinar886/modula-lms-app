@@ -6,9 +6,10 @@ import 'package:modula_lms/features/1_auth/auth_feature.dart';
 import 'package:modula_lms/features/2_marketplace/marketplace_logic.dart';
 import 'package:modula_lms/features/3_learner_space/learner_space_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/instructor_space_logic.dart';
+import 'package:modula_lms/features/4_instructor_space/grading_logic.dart'; // NOUVEL IMPORT
 import 'package:modula_lms/features/4_instructor_space/student_details_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/students_logic.dart';
-import 'package:modula_lms/features/4_instructor_space/submissions_logic.dart'; // NOUVEL IMPORT
+import 'package:modula_lms/features/4_instructor_space/submissions_logic.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
 
 // `sl` (Service Locator) est une instance globale de GetIt.
@@ -61,6 +62,7 @@ void setupLocator() {
   sl.registerFactory(() => QuizEditorBloc(apiClient: sl()));
   sl.registerFactory(() => CourseInfoEditorBloc(apiClient: sl()));
   sl.registerFactory(() => InstructorStudentsBloc(apiClient: sl()));
+  sl.registerFactory(() => GradingBloc(apiClient: sl())); // NOUVEL AJOUT
 
   // --- DÉTAILS D'UN ÉLÈVE (Logique conservée) ---
   sl.registerFactory(() => StudentDetailsBloc(repository: sl()));

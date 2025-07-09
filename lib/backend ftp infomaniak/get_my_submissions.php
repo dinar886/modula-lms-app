@@ -23,19 +23,25 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8mb4");
 
+// CORRECTION : La requête a été modifiée pour être identique à celle utilisée
+// pour les instructeurs, en joignant la table 'users' pour récupérer les
+// informations de l'étudiant (nom, image, etc.).
 $sql = "
     SELECT 
         s.id as submission_id,
         s.status,
         s.submission_date,
         s.grade,
-        s.instructor_feedback,
+        u.id as student_id,
+        u.name as student_name,
+        u.profile_image_url as student_image_url,
         l.id as lesson_id,
         l.title as lesson_title,
         l.lesson_type,
         c.id as course_id,
         c.title as course_title
     FROM submissions s
+    JOIN users u ON s.student_id = u.id
     JOIN lessons l ON s.lesson_id = l.id
     JOIN courses c ON s.course_id = c.id
     WHERE s.student_id = ?
@@ -49,6 +55,12 @@ $result = $stmt->get_result();
 
 $submissions = [];
 while ($row = $result->fetch_assoc()) {
+    // On s'assure que les valeurs numériques sont bien des nombres
+    $row['submission_id'] = (int)$row['submission_id'];
+    $row['student_id'] = (int)$row['student_id'];
+    $row['lesson_id'] = (int)$row['lesson_id'];
+    $row['course_id'] = (int)$row['course_id'];
+    $row['grade'] = $row['grade'] !== null ? (float)$row['grade'] : null;
     $submissions[] = $row;
 }
 

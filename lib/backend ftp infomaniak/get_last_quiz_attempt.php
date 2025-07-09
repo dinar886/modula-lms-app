@@ -53,7 +53,8 @@ if ($result->num_rows > 0) {
     ];
 
     // 2. Récupérer les réponses associées à cette tentative
-    $sql_answers = "SELECT question_id, selected_answer_id, is_correct 
+    // MODIFICATION : On récupère aussi selected_text_answer
+    $sql_answers = "SELECT question_id, selected_answer_id, selected_text_answer, is_correct 
                     FROM quiz_attempt_answers 
                     WHERE quiz_attempt_id = ?";
     
@@ -65,7 +66,8 @@ if ($result->num_rows > 0) {
     while ($answer_row = $result_answers->fetch_assoc()) {
         $response['answers'][] = [
             'question_id' => (int)$answer_row['question_id'],
-            'selected_answer_id' => (int)$answer_row['selected_answer_id'],
+            'selected_answer_id' => $answer_row['selected_answer_id'] ? (int)$answer_row['selected_answer_id'] : null,
+            'selected_text_answer' => $answer_row['selected_text_answer'], // Nouveau champ
             'is_correct' => (bool)$answer_row['is_correct']
         ];
     }

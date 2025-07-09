@@ -2,7 +2,7 @@
 /**
  * Fichier : /api/v1/submit_quiz.php
  * Description : Gère la soumission d'un quiz, calcule le score, et enregistre la tentative complète.
- * Version : 3.0 (Avec enregistrement détaillé des réponses)
+ * Version : 4.0 (Gère les QCM et les Textes à trous)
  */
 
 // --- En-têtes HTTP ---
@@ -39,7 +39,7 @@ if (
 $student_id = (int)$data['student_id'];
 $quiz_id = (int)$data['quiz_id'];
 $lesson_id = (int)$data['lesson_id'];
-$user_answers = $data['answers']; // Tableau associatif [question_id => answer_id]
+$user_answers = $data['answers']; // Tableau associatif [question_id => answer_id ou answer_text]
 
 // 3. Connexion à la base de données
 $conn = new mysqli($servername, $username, $password, $dbname);
@@ -53,23 +53,39 @@ $conn->begin_transaction(); // Démarrage de la transaction
 
 try {
     // 4. Calcul du score et récupération des détails
-    $correct_answers_map = []; // Pour stocker [question_id => correct_answer_id]
-    $sql_questions = "SELECT id, (SELECT id FROM answers WHERE question_id = questions.id AND is_correct = 1 LIMIT 1) as correct_answer_id FROM questions WHERE quiz_id = ?";
+    $questions_details = []; // Pour stocker les détails de chaque question
+    $sql_questions = "SELECT id, question_type, correct_text_answer, (SELECT id FROM answers WHERE question_id = questions.id AND is_correct = 1 LIMIT 1) as correct_answer_id FROM questions WHERE quiz_id = ?";
     $stmt_questions = $conn->prepare($sql_questions);
     $stmt_questions->bind_param("i", $quiz_id);
     $stmt_questions->execute();
     $result_questions = $stmt_questions->get_result();
-    
+
     $total_questions = $result_questions->num_rows;
     $correct_answers_count = 0;
 
     if ($total_questions > 0) {
         while ($question = $result_questions->fetch_assoc()) {
-            $question_id = $question['id'];
-            $correct_answer_id = $question['correct_answer_id'];
-            $correct_answers_map[$question_id] = $correct_answer_id;
+            $questions_details[$question['id']] = $question;
+        }
 
-            if (isset($user_answers[$question_id]) && $user_answers[$question_id] == $correct_answer_id) {
+        foreach ($user_answers as $question_id => $user_answer) {
+            if (!isset($questions_details[$question_id])) continue;
+
+            $question_detail = $questions_details[$question_id];
+            $is_correct = false;
+
+            if ($question_detail['question_type'] === 'mcq') {
+                if ($user_answer == $question_detail['correct_answer_id']) {
+                    $is_correct = true;
+                }
+            } elseif ($question_detail['question_type'] === 'fill_in_the_blank') {
+                // Comparaison insensible à la casse et sans espaces superflus
+                if (strtolower(trim($user_answer)) === strtolower(trim($question_detail['correct_text_answer']))) {
+                    $is_correct = true;
+                }
+            }
+
+            if ($is_correct) {
                 $correct_answers_count++;
             }
         }
@@ -84,18 +100,37 @@ try {
     $stmt_insert = $conn->prepare($sql_insert_attempt);
     $stmt_insert->bind_param("iiidii", $student_id, $quiz_id, $lesson_id, $score, $total_questions, $correct_answers_count);
     $stmt_insert->execute();
-    $attempt_id = $conn->insert_id; // On récupère l'ID de la tentative
+    $attempt_id = $conn->insert_id;
     $stmt_insert->close();
 
     // 6. Enregistrement de chaque réponse dans `quiz_attempt_answers`
-    $sql_insert_answer = "INSERT INTO quiz_attempt_answers (quiz_attempt_id, question_id, selected_answer_id, is_correct) VALUES (?, ?, ?, ?)";
+    $sql_insert_answer = "INSERT INTO quiz_attempt_answers (quiz_attempt_id, question_id, selected_answer_id, selected_text_answer, is_correct) VALUES (?, ?, ?, ?, ?)";
     $stmt_answer = $conn->prepare($sql_insert_answer);
-    foreach ($user_answers as $question_id => $selected_answer_id) {
-        $is_answer_correct = ($correct_answers_map[$question_id] == $selected_answer_id);
-        $stmt_answer->bind_param("iiii", $attempt_id, $question_id, $selected_answer_id, $is_answer_correct);
+    foreach ($user_answers as $question_id => $user_answer) {
+        if (!isset($questions_details[$question_id])) continue;
+        
+        $question_detail = $questions_details[$question_id];
+        $selected_answer_id = null;
+        $selected_text_answer = null;
+        $is_answer_correct = false;
+
+        if ($question_detail['question_type'] === 'mcq') {
+            $selected_answer_id = (int)$user_answer;
+            if ($selected_answer_id == $question_detail['correct_answer_id']) {
+                $is_answer_correct = true;
+            }
+        } elseif ($question_detail['question_type'] === 'fill_in_the_blank') {
+            $selected_text_answer = (string)$user_answer;
+             if (strtolower(trim($selected_text_answer)) === strtolower(trim($question_detail['correct_text_answer']))) {
+                $is_answer_correct = true;
+            }
+        }
+        
+        $stmt_answer->bind_param("iiisi", $attempt_id, $question_id, $selected_answer_id, $selected_text_answer, $is_answer_correct);
         $stmt_answer->execute();
     }
     $stmt_answer->close();
+
 
     // 7. Validation de la transaction
     $conn->commit();

@@ -3,34 +3,120 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/1_auth/auth_feature.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+/// Une page dédiée à l'affichage et à l'interaction avec un quiz.
+///
+/// Cette page est conçue pour être appelée avec un `lessonId`. Elle charge
+/// d'abord les détails de la leçon pour trouver le premier quiz qu'elle contient,
+/// puis elle affiche ce quiz.
 class QuizPage extends StatelessWidget {
   final int lessonId;
   const QuizPage({super.key, required this.lessonId});
 
   @override
   Widget build(BuildContext context) {
-    // On récupère l'ID de l'utilisateur pour le passer au BLoC.
-    final userId = context.read<AuthenticationBloc>().state.user.id;
+    final studentId = context.read<AuthenticationBloc>().state.user.id;
 
+    // Étape 1: On utilise le LessonDetailBloc pour récupérer les informations
+    // de la leçon, qui contiennent les détails du quiz (son ID, etc.).
     return BlocProvider(
       create: (context) =>
-          sl<QuizBloc>()..add(FetchQuiz(lessonId: lessonId, studentId: userId)),
+          sl<LessonDetailBloc>()
+            ..add(FetchLessonDetails(lessonId: lessonId, studentId: studentId)),
+      child: Scaffold(
+        // L'AppBar est simple et affiche un titre générique pendant le chargement.
+        appBar: AppBar(title: const Text('Quiz')),
+        body: BlocBuilder<LessonDetailBloc, LessonDetailState>(
+          builder: (context, state) {
+            // Affiche un indicateur de chargement pendant la récupération des détails.
+            if (state is LessonDetailLoading || state is LessonDetailInitial) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            // Affiche un message d'erreur si la récupération échoue.
+            if (state is LessonDetailError) {
+              return Center(child: Text(state.message));
+            }
+
+            // Une fois les détails de la leçon chargés.
+            if (state is LessonDetailLoaded) {
+              try {
+                // On cherche le premier bloc de type 'quiz' dans la leçon.
+                final quizBlock = state.lesson.contentBlocks.firstWhere(
+                  (block) => block.blockType == ContentBlockType.quiz,
+                );
+
+                // On extrait l'ID du quiz et le nombre maximum de tentatives.
+                final quizId = int.parse(quizBlock.content);
+                final maxAttempts =
+                    (quizBlock.metadata['max_attempts'] as num?)?.toInt() ?? -1;
+
+                // On passe ces informations au widget qui gère l'affichage du quiz.
+                return _QuizView(
+                  quizId: quizId,
+                  lessonId: lessonId,
+                  maxAttempts: maxAttempts,
+                );
+              } catch (e) {
+                // Si aucun bloc de quiz n'est trouvé dans la leçon.
+                return const Center(
+                  child: Text("Aucun quiz n'a été trouvé dans cette leçon."),
+                );
+              }
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// Widget interne qui gère l'état et l'affichage du quiz lui-même.
+///
+/// Il est créé une fois que l'ID du quiz et les autres informations
+/// nécessaires ont été extraites de la leçon.
+class _QuizView extends StatelessWidget {
+  final int quizId;
+  final int lessonId;
+  final int maxAttempts;
+
+  const _QuizView({
+    required this.quizId,
+    required this.lessonId,
+    required this.maxAttempts,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final studentId = context.read<AuthenticationBloc>().state.user.id;
+
+    // Étape 2: On fournit maintenant le QuizBloc avec les bons paramètres.
+    return BlocProvider(
+      create: (context) => sl<QuizBloc>()
+        ..add(
+          FetchQuiz(
+            quizId: quizId,
+            studentId: studentId,
+            maxAttempts: maxAttempts,
+          ),
+        ),
       child: BlocBuilder<QuizBloc, QuizState>(
         builder: (context, state) {
-          // L'AppBar affiche le titre du quiz une fois chargé.
+          // Le corps de la page change en fonction de l'état du QuizBloc.
           return Scaffold(
             appBar: AppBar(
+              // Le titre est mis à jour avec le vrai titre du quiz une fois chargé.
               title: Text(
                 state.quiz.title.isNotEmpty
                     ? state.quiz.title
-                    : 'Chargement du Quiz...',
+                    : 'Chargement...',
               ),
+              // On s'assure que le bouton retour de l'AppBar n'est pas affiché
+              // car la navigation est déjà gérée par la page principale.
+              automaticallyImplyLeading: false,
             ),
-            // Le corps de la page change en fonction de l'état du BLoC.
             body: _buildBody(context, state),
-            // Le bouton de soumission n'apparaît que lorsque le quiz est prêt à être soumis.
             bottomNavigationBar: _buildBottomButton(context, state),
           );
         },
@@ -41,21 +127,16 @@ class QuizPage extends StatelessWidget {
   /// Construit le corps principal de la page en fonction de l'état du quiz.
   Widget _buildBody(BuildContext context, QuizState state) {
     switch (state.status) {
-      // Cas 1: Chargement initial du quiz.
       case QuizStatus.initial:
       case QuizStatus.loading:
         return const Center(child: CircularProgressIndicator());
 
-      // Cas 2: Le quiz est chargé et l'utilisateur peut répondre.
       case QuizStatus.loaded:
-        // Si l'utilisateur n'a plus de tentatives, on affiche un message.
         if (!state.canAttemptQuiz) {
-          return _buildAttemptsExceeded(context);
+          return _buildAttemptsExceeded(context, state);
         }
-        // Sinon, on affiche le formulaire du quiz.
         return _buildQuizForm(context, state);
 
-      // Cas 3: Le quiz a été soumis, en attente de la réponse du serveur.
       case QuizStatus.submitted:
         return const Center(
           child: Column(
@@ -68,11 +149,9 @@ class QuizPage extends StatelessWidget {
           ),
         );
 
-      // Cas 4: NOUVEAU - Affiche la page des résultats détaillés.
       case QuizStatus.showingResult:
         return _buildResultView(context, state);
 
-      // Cas 5: Une erreur est survenue.
       case QuizStatus.failure:
         return Center(
           child: Padding(
@@ -87,9 +166,8 @@ class QuizPage extends StatelessWidget {
     }
   }
 
-  /// Construit le bouton en bas de page (uniquement le bouton "Soumettre").
+  /// Construit le bouton en bas de page pour soumettre les réponses.
   Widget? _buildBottomButton(BuildContext context, QuizState state) {
-    // Le bouton n'est visible que si le quiz est chargé et peut être tenté.
     if (state.status == QuizStatus.loaded && state.canAttemptQuiz) {
       return Padding(
         padding: const EdgeInsets.all(16.0),
@@ -97,67 +175,39 @@ class QuizPage extends StatelessWidget {
           icon: const Icon(Icons.check_circle_outline),
           label: const Text('Valider mes réponses'),
           onPressed: () {
-            // Au clic, on envoie l'événement de soumission au BLoC.
             final studentId = context.read<AuthenticationBloc>().state.user.id;
             context.read<QuizBloc>().add(
+              // L'événement de soumission utilise `lessonId` qui est disponible ici.
               SubmitQuiz(studentId: studentId, lessonId: lessonId),
             );
           },
         ),
       );
     }
-    // Dans tous les autres cas, pas de bouton.
     return null;
   }
 
-  /// Affiche le formulaire du quiz avec les questions et les réponses.
+  /// Construit le formulaire du quiz avec les questions.
   Widget _buildQuizForm(BuildContext context, QuizState state) {
     return ListView.builder(
       padding: const EdgeInsets.all(8),
       itemCount: state.quiz.questions.length,
       itemBuilder: (context, index) {
         final question = state.quiz.questions[index];
-        return Card(
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Texte de la question
-                Text(
-                  question.text,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 16),
-                // Liste des réponses possibles sous forme de boutons radio
-                ...question.answers.map((answer) {
-                  return RadioListTile<int>(
-                    title: Text(answer.text),
-                    value: answer.id,
-                    groupValue: state.userAnswers[question.id],
-                    onChanged: (value) {
-                      // Quand une réponse est sélectionnée, on notifie le BLoC.
-                      if (value != null) {
-                        context.read<QuizBloc>().add(
-                          AnswerSelected(
-                            questionId: question.id,
-                            answerId: value,
-                          ),
-                        );
-                      }
-                    },
-                  );
-                }),
-              ],
-            ),
-          ),
+        // On retourne le widget approprié en fonction du type de question.
+        if (question.questionType == QuestionType.fill_in_the_blank) {
+          return _FillInTheBlankInputCard(question: question);
+        }
+        // Par défaut, c'est un QCM.
+        return _McqInputCard(
+          question: question,
+          groupValue: state.userAnswers[question.id],
         );
       },
     );
   }
 
-  /// NOUVEAU WIDGET: Affiche la vue des résultats après soumission.
+  /// Affiche la vue des résultats après une tentative.
   Widget _buildResultView(BuildContext context, QuizState state) {
     final attempt = state.lastAttempt;
     if (attempt == null) {
@@ -166,11 +216,9 @@ class QuizPage extends StatelessWidget {
       );
     }
 
-    // On utilise un ListView pour que l'écran soit scrollable.
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
-        // Section du score
         Card(
           elevation: 2,
           child: Padding(
@@ -187,7 +235,6 @@ class QuizPage extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 8),
-                // Affichage du score sur 20
                 Text(
                   '${attempt.score.toStringAsFixed(1)} / 20.0',
                   style: Theme.of(context).textTheme.displayMedium?.copyWith(
@@ -204,101 +251,45 @@ class QuizPage extends StatelessWidget {
           ),
         ),
         const Divider(height: 32),
-
-        // Section de la correction détaillée
         Text(
           'Correction détaillée',
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 16),
 
-        // On boucle sur chaque question pour afficher la correction.
+        // Affiche la correction pour chaque question.
         ...state.quiz.questions.map((question) {
-          final selectedAnswerId = attempt.answers[question.id];
-          final correctAnswer = question.answers.firstWhere((a) => a.isCorrect);
+          final userAnswer = attempt.answers[question.id];
+          final isCorrect = _isAnswerCorrect(question, userAnswer);
 
-          return Card(
-            margin: const EdgeInsets.only(bottom: 16),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Texte de la question
-                  Text(
-                    question.text,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  // On boucle sur chaque réponse possible pour l'afficher.
-                  ...question.answers.map((answer) {
-                    final isSelected = answer.id == selectedAnswerId;
-                    final isCorrect = answer.isCorrect;
-
-                    Color? tileColor; // Couleur de fond de la case
-                    Icon? trailingIcon; // Icône à droite (check ou cancel)
-
-                    // Si la réponse est la bonne, on la colore en vert.
-                    if (isCorrect) {
-                      tileColor = Colors.green.withOpacity(0.15);
-                      trailingIcon = const Icon(
-                        Icons.check_circle,
-                        color: Colors.green,
-                      );
-                    }
-                    // Si l'utilisateur a sélectionné cette réponse ET qu'elle est fausse...
-                    if (isSelected && !isCorrect) {
-                      // ...on la colore en rouge.
-                      tileColor = Colors.red.withOpacity(0.15);
-                      trailingIcon = const Icon(
-                        Icons.cancel,
-                        color: Colors.red,
-                      );
-                    }
-
-                    return Container(
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      decoration: BoxDecoration(
-                        color: tileColor,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: ListTile(
-                        title: Text(answer.text),
-                        // Le bouton radio montre la réponse de l'utilisateur.
-                        leading: Radio<int>(
-                          value: answer.id,
-                          groupValue: selectedAnswerId,
-                          onChanged:
-                              null, // Désactivé car on est en mode résultat
-                        ),
-                        trailing: trailingIcon,
-                      ),
-                    );
-                  }),
-                ],
-              ),
-            ),
+          if (question.questionType == QuestionType.fill_in_the_blank) {
+            return _FillInTheBlankResultCard(
+              question: question,
+              userAnswer: userAnswer as String? ?? '',
+              isCorrect: isCorrect,
+            );
+          }
+          return _McqResultCard(
+            question: question,
+            selectedAnswerId: userAnswer as int?,
+            isCorrect: isCorrect,
           );
         }),
 
-        // Bouton pour recommencer, si autorisé.
         if (state.canAttemptQuiz) ...[
           const SizedBox(height: 16),
           OutlinedButton.icon(
             icon: const Icon(Icons.refresh),
             label: const Text("Recommencer le Quiz"),
-            onPressed: () {
-              // Envoie l'événement pour réinitialiser le quiz.
-              context.read<QuizBloc>().add(RestartQuiz());
-            },
+            onPressed: () => context.read<QuizBloc>().add(RestartQuiz()),
           ),
         ],
       ],
     );
   }
 
-  /// Affiche un message si l'utilisateur a épuisé ses tentatives.
-  Widget _buildAttemptsExceeded(BuildContext context) {
+  /// Affiche un message lorsque l'utilisateur a épuisé ses tentatives.
+  Widget _buildAttemptsExceeded(BuildContext context, QuizState state) {
     return Center(
       child: Card(
         margin: const EdgeInsets.all(16.0),
@@ -318,28 +309,259 @@ class QuizPage extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
-              Text(
-                "Vous avez déjà atteint le nombre maximum de tentatives pour ce quiz. Vous pouvez consulter votre dernier résultat.",
+              const Text(
+                "Vous avez atteint le nombre maximum de tentatives pour ce quiz. Vous pouvez consulter votre dernier résultat.",
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  // Au clic, on force l'affichage des résultats de la dernière tentative.
-                  final userId = context
-                      .read<AuthenticationBloc>()
-                      .state
-                      .user
-                      .id;
-                  context.read<QuizBloc>().add(
-                    FetchQuiz(lessonId: lessonId, studentId: userId),
-                  );
-                },
-                child: const Text("Voir mon dernier résultat"),
-              ),
+              if (state.lastAttempt != null)
+                ElevatedButton(
+                  onPressed: () => context.read<QuizBloc>().add(RestartQuiz()),
+                  child: const Text("Voir mon dernier résultat"),
+                ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Fonction utilitaire pour vérifier si une réponse est correcte.
+  bool _isAnswerCorrect(QuestionEntity question, dynamic userAnswer) {
+    if (question.questionType == QuestionType.mcq) {
+      final correctAnswerId = question.answers
+          .firstWhere((a) => a.isCorrect)
+          .id;
+      return userAnswer == correctAnswerId;
+    }
+    if (question.questionType == QuestionType.fill_in_the_blank) {
+      final userAnswerText = (userAnswer as String? ?? '').trim().toLowerCase();
+      final correctAnswerText = (question.correctTextAnswer ?? '')
+          .trim()
+          .toLowerCase();
+      return userAnswerText == correctAnswerText;
+    }
+    return false;
+  }
+}
+
+// =======================================================================
+// WIDGETS SPÉCIFIQUES POUR LES CARTES DE QUESTION (INPUTS)
+// =======================================================================
+
+/// Carte pour une question à choix multiples.
+class _McqInputCard extends StatelessWidget {
+  final QuestionEntity question;
+  final int? groupValue;
+  const _McqInputCard({required this.question, required this.groupValue});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(question.text, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 16),
+            ...question.answers.map((answer) {
+              return RadioListTile<int>(
+                title: Text(answer.text),
+                value: answer.id,
+                groupValue: groupValue,
+                onChanged: (value) {
+                  if (value != null) {
+                    context.read<QuizBloc>().add(
+                      AnswerSelected(questionId: question.id, answerId: value),
+                    );
+                  }
+                },
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Carte pour une question de type "texte à trous".
+class _FillInTheBlankInputCard extends StatelessWidget {
+  final QuestionEntity question;
+  const _FillInTheBlankInputCard({required this.question});
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = question.text.split('{{blank}}');
+    final textBefore = parts.isNotEmpty ? parts[0] : '';
+    final textAfter = parts.length > 1 ? parts[1] : '';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 4,
+          runSpacing: 8,
+          children: [
+            if (textBefore.isNotEmpty)
+              Text(textBefore, style: Theme.of(context).textTheme.titleMedium),
+            SizedBox(
+              width: 150,
+              child: TextField(
+                onChanged: (value) {
+                  context.read<QuizBloc>().add(
+                    TextAnswerChanged(questionId: question.id, text: value),
+                  );
+                },
+                decoration: const InputDecoration(
+                  hintText: 'Votre réponse',
+                  isDense: true,
+                ),
+              ),
+            ),
+            if (textAfter.isNotEmpty)
+              Text(textAfter, style: Theme.of(context).textTheme.titleMedium),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// =======================================================================
+// WIDGETS SPÉCIFIQUES POUR LES CARTES DE QUESTION (RÉSULTATS)
+// =======================================================================
+
+/// Carte affichant le résultat d'une question QCM.
+class _McqResultCard extends StatelessWidget {
+  final QuestionEntity question;
+  final int? selectedAnswerId;
+  final bool isCorrect;
+  const _McqResultCard({
+    required this.question,
+    this.selectedAnswerId,
+    required this.isCorrect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(question.text, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            ...question.answers.map((answer) {
+              final bool isSelected = answer.id == selectedAnswerId;
+              final bool isCorrectAnswer = answer.isCorrect;
+              Color? tileColor;
+              Icon? trailingIcon;
+
+              if (isCorrectAnswer) {
+                tileColor = Colors.green.withOpacity(0.15);
+                trailingIcon = const Icon(
+                  Icons.check_circle,
+                  color: Colors.green,
+                );
+              }
+              if (isSelected && !isCorrectAnswer) {
+                tileColor = Colors.red.withOpacity(0.15);
+                trailingIcon = const Icon(Icons.cancel, color: Colors.red);
+              }
+
+              return Container(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                decoration: BoxDecoration(
+                  color: tileColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: ListTile(
+                  title: Text(answer.text),
+                  leading: Radio<int>(
+                    value: answer.id,
+                    groupValue: selectedAnswerId,
+                    onChanged: null,
+                  ),
+                  trailing: trailingIcon,
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Carte affichant le résultat d'une question "texte à trous".
+class _FillInTheBlankResultCard extends StatelessWidget {
+  final QuestionEntity question;
+  final String userAnswer;
+  final bool isCorrect;
+  const _FillInTheBlankResultCard({
+    required this.question,
+    required this.userAnswer,
+    required this.isCorrect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = question.text.split('{{blank}}');
+    final textBefore = parts.isNotEmpty ? parts[0] : '';
+    final textAfter = parts.length > 1 ? parts[1] : '';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 4,
+              children: [
+                if (textBefore.isNotEmpty)
+                  Text(
+                    textBefore,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                Text(
+                  userAnswer.isNotEmpty ? userAnswer : '______',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: isCorrect ? Colors.green : Colors.red,
+                    decoration: isCorrect
+                        ? TextDecoration.none
+                        : TextDecoration.lineThrough,
+                  ),
+                ),
+                if (textAfter.isNotEmpty)
+                  Text(
+                    textAfter,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+              ],
+            ),
+            if (!isCorrect)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  "Bonne réponse : ${question.correctTextAnswer}",
+                  style: const TextStyle(
+                    color: Colors.green,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

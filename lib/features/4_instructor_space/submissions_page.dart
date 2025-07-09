@@ -1,10 +1,11 @@
 // lib/features/4_instructor_space/submissions_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/1_auth/auth_feature.dart';
-import 'package:modula_lms/features/course_player/course_player_logic.dart'; // Pour LessonType
+import 'package:modula_lms/features/course_player/course_player_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/submissions_logic.dart';
 
 class SubmissionsPage extends StatelessWidget {
@@ -33,12 +34,20 @@ class SubmissionsPage extends StatelessWidget {
                   child: Text("Aucun élève n'a encore rendu de travail."),
                 );
               }
-              return ListView.builder(
-                itemCount: state.submissions.length,
-                itemBuilder: (context, index) {
-                  final submission = state.submissions[index];
-                  return SubmissionCard(submission: submission);
+              // On utilise RefreshIndicator pour pouvoir rafraîchir la liste
+              return RefreshIndicator(
+                onRefresh: () async {
+                  context.read<SubmissionsBloc>().add(
+                    FetchInstructorSubmissions(instructorId),
+                  );
                 },
+                child: ListView.builder(
+                  itemCount: state.submissions.length,
+                  itemBuilder: (context, index) {
+                    final submission = state.submissions[index];
+                    return SubmissionCard(submission: submission);
+                  },
+                ),
               );
             }
             return const SizedBox.shrink();
@@ -85,12 +94,8 @@ class SubmissionCard extends StatelessWidget {
           ],
         ),
         onTap: () {
-          // TODO: Naviguer vers la page de correction du rendu
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("La page de correction sera implémentée ici."),
-            ),
-          );
+          // NAVIGATION VERS LA PAGE DE CORRECTION
+          context.push('/grading/${submission.submissionId}');
         },
       ),
     );
@@ -99,28 +104,33 @@ class SubmissionCard extends StatelessWidget {
   Widget _buildStatusChip(String status) {
     Color color;
     String label;
+    IconData icon;
     switch (status) {
       case 'graded':
         color = Colors.green;
         label = 'Noté';
+        icon = Icons.check_circle_outline;
         break;
       case 'returned':
         color = Colors.blue;
         label = 'Corrigé';
+        icon = Icons.check_circle;
         break;
       case 'submitted':
       default:
         color = Colors.orange;
         label = 'À corriger';
+        icon = Icons.hourglass_top_outlined;
         break;
     }
     return Chip(
+      avatar: Icon(icon, color: Colors.white, size: 14),
       label: Text(
         label,
         style: const TextStyle(color: Colors.white, fontSize: 10),
       ),
       backgroundColor: color,
-      padding: EdgeInsets.zero,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
     );
   }
 }

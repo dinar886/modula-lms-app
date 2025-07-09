@@ -1,6 +1,6 @@
 <?php
 // Fichier: /api/v1/grade_submission.php
-// Description: Permet à un instructeur de noter un rendu et de laisser un commentaire.
+// Description: Permet à un instructeur de noter un rendu, de laisser un commentaire structuré en JSON et d'attacher des fichiers.
 
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
@@ -12,16 +12,17 @@ require_once 'config.php';
 $data = json_decode(file_get_contents("php://input"));
 
 // Validation des données
-if (!isset($data->submission_id) || !isset($data->grade)) {
+if (!isset($data->submission_id)) {
     http_response_code(400);
-    echo json_encode(["message" => "ID du rendu et note requis."]);
+    echo json_encode(["message" => "L'ID du rendu est manquant."]);
     exit();
 }
 
 $submission_id = (int)$data->submission_id;
-$grade = (float)$data->grade;
-// Le feedback est optionnel
-$feedback = isset($data->feedback) ? $data->feedback : null;
+// La note est optionnelle (pour les devoirs sans note)
+$grade = isset($data->grade) ? (float)$data->grade : null;
+// Le feedback est un objet JSON, on le ré-encode en chaîne pour le stocker
+$feedback_json = isset($data->feedback) ? json_encode($data->feedback) : null;
 
 $conn = new mysqli($servername, $username, $password, $dbname);
 if ($conn->connect_error) {
@@ -31,11 +32,24 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8mb4");
 
-// La requête met à jour la note, le feedback et passe le statut à 'graded' (noté).
-$sql = "UPDATE submissions SET grade = ?, instructor_feedback = ?, status = 'graded' WHERE id = ?";
+// La requête met à jour la note, le feedback, le statut, et la date de correction.
+$sql = "UPDATE submissions 
+        SET 
+            grade = ?, 
+            instructor_feedback = ?, 
+            status = 'graded', 
+            graded_date = NOW() 
+        WHERE id = ?";
+
 $stmt = $conn->prepare($sql);
-// 'dsi': double, string, integer
-$stmt->bind_param("dsi", $grade, $feedback, $submission_id);
+if ($stmt === false) {
+    http_response_code(500);
+    echo json_encode(["message" => "Erreur de préparation de la requête: " . $conn->error]);
+    exit();
+}
+
+// 'dsi': double, string, integer. Le type pour `grade` peut être NULL, donc on utilise une variable.
+$stmt->bind_param("dsi", $grade, $feedback_json, $submission_id);
 
 if ($stmt->execute()) {
     http_response_code(200);

@@ -6,7 +6,6 @@ import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/instructor_space_logic.dart';
 
-// CORRECTION 1 : Le widget est maintenant un StatefulWidget.
 class QuizEditorPage extends StatefulWidget {
   final int quizId;
   const QuizEditorPage({super.key, required this.quizId});
@@ -16,44 +15,47 @@ class QuizEditorPage extends StatefulWidget {
 }
 
 class _QuizEditorPageState extends State<QuizEditorPage> {
-  // Map pour stocker les contrôleurs de texte, ce qui évite la perte de focus.
   final Map<String, TextEditingController> _controllers = {};
 
   @override
   void dispose() {
-    // On libère la mémoire de tous les contrôleurs.
     for (var controller in _controllers.values) {
       controller.dispose();
     }
     super.dispose();
   }
 
-  /// Prépare ou met à jour les contrôleurs de texte pour le quiz.
   void _prepareControllers(QuizEntity quiz) {
-    // Clé pour le titre
     final titleKey = 'quiz_${quiz.id}_title';
     _controllers.putIfAbsent(
       titleKey,
       () => TextEditingController(text: quiz.title),
     );
 
-    // Clé pour la description
     final descKey = 'quiz_${quiz.id}_desc';
     _controllers.putIfAbsent(
       descKey,
       () => TextEditingController(text: quiz.description),
     );
 
-    // Clés pour chaque question et réponse
     for (var q in quiz.questions) {
       final qKey = 'q_${q.id}';
       _controllers.putIfAbsent(qKey, () => TextEditingController(text: q.text));
-      for (var a in q.answers) {
-        final aKey = 'a_${a.id}';
+
+      if (q.questionType == QuestionType.fill_in_the_blank) {
+        final fitbKey = 'fitb_a_${q.id}';
         _controllers.putIfAbsent(
-          aKey,
-          () => TextEditingController(text: a.text),
+          fitbKey,
+          () => TextEditingController(text: q.correctTextAnswer),
         );
+      } else {
+        for (var a in q.answers) {
+          final aKey = 'a_${a.id}';
+          _controllers.putIfAbsent(
+            aKey,
+            () => TextEditingController(text: a.text),
+          );
+        }
       }
     }
   }
@@ -68,7 +70,6 @@ class _QuizEditorPageState extends State<QuizEditorPage> {
             prev.status != current.status || prev.quiz != current.quiz,
         listener: (context, state) {
           if (state.status == QuizEditorStatus.loaded) {
-            // Quand le quiz est chargé ou modifié, on s'assure que les contrôleurs sont prêts.
             _prepareControllers(state.quiz);
           } else if (state.status == QuizEditorStatus.success) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -77,7 +78,6 @@ class _QuizEditorPageState extends State<QuizEditorPage> {
                 backgroundColor: Colors.green,
               ),
             );
-            // On renvoie l'ID du quiz sauvegardé à la page précédente.
             context.pop(state.quiz.id);
           } else if (state.status == QuizEditorStatus.failure) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -113,6 +113,7 @@ class _QuizEditorPageState extends State<QuizEditorPage> {
                 ],
               ),
               body: _buildBody(context, state),
+              floatingActionButton: _buildAddQuestionFab(context),
             ),
           );
         },
@@ -129,9 +130,8 @@ class _QuizEditorPageState extends State<QuizEditorPage> {
     final bloc = context.read<QuizEditorBloc>();
 
     return ListView(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(16.0).copyWith(bottom: 80),
       children: [
-        // Champ pour le titre du quiz.
         TextFormField(
           controller: _controllers['quiz_${state.quiz.id}_title'],
           decoration: const InputDecoration(
@@ -142,7 +142,6 @@ class _QuizEditorPageState extends State<QuizEditorPage> {
               bloc.add(UpdateQuiz(state.quiz.copyWith(title: value))),
         ),
         const SizedBox(height: 16),
-        // Champ pour la description.
         TextFormField(
           controller: _controllers['quiz_${state.quiz.id}_desc'],
           decoration: const InputDecoration(
@@ -154,46 +153,74 @@ class _QuizEditorPageState extends State<QuizEditorPage> {
               bloc.add(UpdateQuiz(state.quiz.copyWith(description: value))),
         ),
         const Divider(height: 32),
-        // Affichage des questions
         ...state.quiz.questions.map((question) {
-          return _QuestionEditorCard(
-            key: ValueKey(question.id), // Clé unique pour la reconstruction
-            question: question,
-            controller: _controllers['q_${question.id}']!,
-          );
+          // On passe le bon contrôleur en fonction du type de question.
+          final questionController = _controllers['q_${question.id}']!;
+          if (question.questionType == QuestionType.mcq) {
+            return _McqQuestionEditorCard(
+              key: ValueKey(question.id),
+              question: question,
+              controller: questionController,
+            );
+          } else {
+            return _FillInTheBlankQuestionEditorCard(
+              key: ValueKey(question.id),
+              question: question,
+              questionController: questionController,
+              answerController: _controllers['fitb_a_${question.id}']!,
+            );
+          }
         }),
         const SizedBox(height: 20),
-        // Bouton pour ajouter une question
-        OutlinedButton.icon(
-          icon: const Icon(Icons.add),
-          label: const Text('Ajouter une question'),
-          onPressed: () => bloc.add(AddQuestion()),
+      ],
+    );
+  }
+
+  // FAB (Floating Action Button) pour ajouter une question.
+  Widget _buildAddQuestionFab(BuildContext context) {
+    final bloc = context.read<QuizEditorBloc>();
+    return PopupMenuButton<QuestionType>(
+      onSelected: (type) => bloc.add(AddQuestion(type)),
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: QuestionType.mcq,
+          child: ListTile(
+            leading: Icon(Icons.radio_button_checked),
+            title: Text('Question à choix multiple'),
+          ),
+        ),
+        const PopupMenuItem(
+          value: QuestionType.fill_in_the_blank,
+          child: ListTile(
+            leading: Icon(Icons.text_fields),
+            title: Text('Texte à trous'),
+          ),
         ),
       ],
+      // Personnalisation du FAB
+      child: const FloatingActionButton.extended(
+        onPressed: null, // Le onPressed est géré par le PopupMenuButton
+        label: Text('Ajouter une question'),
+        icon: Icon(Icons.add),
+      ),
     );
   }
 }
 
-// CORRECTION 2 : Les widgets internes deviennent aussi des StatefulWidget pour gérer leur propre contrôleur.
-class _QuestionEditorCard extends StatefulWidget {
+// --- EDITEUR POUR QUESTION QCM ---
+class _McqQuestionEditorCard extends StatelessWidget {
   final QuestionEntity question;
   final TextEditingController controller;
 
-  const _QuestionEditorCard({
+  const _McqQuestionEditorCard({
     super.key,
     required this.question,
     required this.controller,
   });
 
   @override
-  State<_QuestionEditorCard> createState() => _QuestionEditorCardState();
-}
-
-class _QuestionEditorCardState extends State<_QuestionEditorCard> {
-  @override
   Widget build(BuildContext context) {
     final bloc = context.read<QuizEditorBloc>();
-    final questionIndex = bloc.state.quiz.questions.indexOf(widget.question);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16.0),
@@ -201,40 +228,35 @@ class _QuestionEditorCardState extends State<_QuestionEditorCard> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // Champ pour le texte de la question
             TextFormField(
-              controller: widget.controller,
+              controller: controller,
               decoration: InputDecoration(
                 hintText: 'Texte de la question',
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  onPressed: () => bloc.add(DeleteQuestion(widget.question.id)),
+                  onPressed: () => bloc.add(DeleteQuestion(question.id)),
                 ),
               ),
-              onChanged: (value) => bloc.add(
-                UpdateQuestion(widget.question.copyWith(text: value)),
-              ),
+              onChanged: (value) =>
+                  bloc.add(UpdateQuestion(question.copyWith(text: value))),
             ),
             const SizedBox(height: 16),
-            // Affichage des réponses
-            ...widget.question.answers.map((answer) {
-              // On récupère le contrôleur de la réponse depuis le widget parent.
+            ...question.answers.map((answer) {
               final answerController = (context
                   .findAncestorStateOfType<_QuizEditorPageState>()!
                   ._controllers['a_${answer.id}'])!;
               return _AnswerEditorRow(
                 key: ValueKey(answer.id),
-                question: widget.question,
+                question: question,
                 answer: answer,
                 controller: answerController,
               );
             }),
             const SizedBox(height: 8),
-            // Bouton pour ajouter une réponse
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
-                onPressed: () => bloc.add(AddAnswer(widget.question.id)),
+                onPressed: () => bloc.add(AddAnswer(question.id)),
                 child: const Text("+ Ajouter une réponse"),
               ),
             ),
@@ -245,6 +267,61 @@ class _QuestionEditorCardState extends State<_QuestionEditorCard> {
   }
 }
 
+// --- EDITEUR POUR QUESTION TEXTE À TROUS ---
+class _FillInTheBlankQuestionEditorCard extends StatelessWidget {
+  final QuestionEntity question;
+  final TextEditingController questionController;
+  final TextEditingController answerController;
+
+  const _FillInTheBlankQuestionEditorCard({
+    super.key,
+    required this.question,
+    required this.questionController,
+    required this.answerController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bloc = context.read<QuizEditorBloc>();
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16.0),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextFormField(
+              controller: questionController,
+              decoration: InputDecoration(
+                labelText: 'Phrase à compléter',
+                hintText: 'Utilisez {{blank}} pour le mot manquant.',
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: () => bloc.add(DeleteQuestion(question.id)),
+                ),
+              ),
+              onChanged: (value) =>
+                  bloc.add(UpdateQuestion(question.copyWith(text: value))),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: answerController,
+              decoration: const InputDecoration(
+                labelText: 'Mot correct',
+                hintText: 'Le mot qui remplace {{blank}}',
+              ),
+              onChanged: (value) => bloc.add(
+                UpdateQuestion(question.copyWith(correctTextAnswer: value)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- WIDGET POUR UNE LIGNE DE RÉPONSE (QCM) ---
 class _AnswerEditorRow extends StatelessWidget {
   final QuestionEntity question;
   final AnswerEntity answer;
@@ -264,7 +341,6 @@ class _AnswerEditorRow extends StatelessWidget {
 
     return Row(
       children: [
-        // Bouton radio pour marquer la bonne réponse
         Radio<bool>(
           value: true,
           groupValue: isCorrect,
@@ -276,7 +352,6 @@ class _AnswerEditorRow extends StatelessWidget {
             }
           },
         ),
-        // Champ pour le texte de la réponse
         Expanded(
           child: TextFormField(
             controller: controller,
@@ -285,7 +360,6 @@ class _AnswerEditorRow extends StatelessWidget {
                 bloc.add(UpdateAnswer(answer.copyWith(text: value))),
           ),
         ),
-        // Bouton pour supprimer la réponse
         IconButton(
           icon: const Icon(Icons.close, size: 20),
           onPressed: () => bloc.add(DeleteAnswer(answer.id)),

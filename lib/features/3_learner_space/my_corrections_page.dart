@@ -1,14 +1,14 @@
-// lib/features/3_learner_space/my_submissions_page.dart
+// lib/features/3_learner_space/my_corrections_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/1_auth/auth_feature.dart';
+import 'package:modula_lms/features/course_player/course_player_logic.dart'; // Pour LessonType
 import 'package:modula_lms/features/4_instructor_space/submissions_logic.dart';
 
-class MySubmissionsPage extends StatelessWidget {
-  const MySubmissionsPage({super.key});
+class MyCorrectionsPage extends StatelessWidget {
+  const MyCorrectionsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +18,7 @@ class MySubmissionsPage extends StatelessWidget {
       create: (context) =>
           sl<SubmissionsBloc>()..add(FetchMySubmissions(studentId)),
       child: Scaffold(
-        appBar: AppBar(title: const Text('Mes Rendus')),
+        appBar: AppBar(title: const Text('Mes Corrections')),
         body: BlocBuilder<SubmissionsBloc, SubmissionsState>(
           builder: (context, state) {
             if (state is SubmissionsLoading) {
@@ -28,9 +28,18 @@ class MySubmissionsPage extends StatelessWidget {
               return Center(child: Text(state.message));
             }
             if (state is SubmissionsLoaded) {
-              if (state.submissions.isEmpty) {
+              // On filtre la liste pour ne garder que les devoirs notés ('graded')
+              final gradedSubmissions = state.submissions
+                  .where(
+                    (s) =>
+                        s.status == 'graded' &&
+                        s.lessonType == LessonType.devoir,
+                  )
+                  .toList();
+
+              if (gradedSubmissions.isEmpty) {
                 return const Center(
-                  child: Text("Vous n'avez encore rien rendu."),
+                  child: Text("Vous n'avez aucune correction pour le moment."),
                 );
               }
               return RefreshIndicator(
@@ -40,11 +49,9 @@ class MySubmissionsPage extends StatelessWidget {
                   );
                 },
                 child: ListView.builder(
-                  itemCount: state.submissions.length,
+                  itemCount: gradedSubmissions.length,
                   itemBuilder: (context, index) {
-                    final submission = state.submissions[index];
-
-                    // CORRECTION : Le clic navigue toujours vers la page de la leçon.
+                    final submission = gradedSubmissions[index];
                     return Card(
                       margin: const EdgeInsets.symmetric(
                         horizontal: 16,
@@ -55,15 +62,12 @@ class MySubmissionsPage extends StatelessWidget {
                           submission.lessonTitle,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        subtitle: Text(
-                          'Cours: ${submission.courseTitle}\nRendu le: ${DateFormat('dd/MM/yyyy HH:mm').format(submission.submissionDate)}',
-                        ),
-                        trailing: _buildStatusChip(submission.status),
+                        subtitle: Text('Cours: ${submission.courseTitle}'),
+                        trailing: _buildGradeChip(submission.grade),
                         onTap: () {
-                          // Navigue vers la page de la leçon pour voir le contexte du rendu.
+                          // Navigue vers la page de visualisation de la correction
                           context.push(
-                            '/lesson-viewer/${submission.lessonId}',
-                            extra: submission.courseId.toString(),
+                            '/graded-submission/${submission.submissionId}',
                           );
                         },
                       ),
@@ -79,18 +83,25 @@ class MySubmissionsPage extends StatelessWidget {
     );
   }
 
-  // Widget pour afficher le statut du rendu.
-  Widget _buildStatusChip(String status) {
-    if (status == 'graded') {
-      return const Chip(
+  // Widget pour afficher la note obtenue.
+  Widget _buildGradeChip(double? grade) {
+    if (grade != null) {
+      return Chip(
         avatar: Icon(Icons.check_circle, color: Colors.white, size: 16),
-        label: Text('Noté', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.green,
+        label: Text(
+          '${grade.toStringAsFixed(1)} / 20',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: grade >= 10 ? Colors.green : Colors.red,
       );
     }
+    // Si un devoir "graded" n'a pas de note, on affiche juste "Corrigé"
     return const Chip(
-      avatar: Icon(Icons.hourglass_empty, color: Colors.white, size: 16),
-      label: Text('Rendu', style: TextStyle(color: Colors.white)),
+      avatar: Icon(Icons.check, color: Colors.white, size: 16),
+      label: Text('Corrigé', style: TextStyle(color: Colors.white)),
       backgroundColor: Colors.blue,
     );
   }

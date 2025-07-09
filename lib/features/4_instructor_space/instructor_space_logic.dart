@@ -831,7 +831,10 @@ class UpdateQuiz extends QuizEditorEvent {
 }
 
 // Événements granulaires pour des modifications spécifiques.
-class AddQuestion extends QuizEditorEvent {}
+class AddQuestion extends QuizEditorEvent {
+  final QuestionType type;
+  const AddQuestion(this.type);
+}
 
 class DeleteQuestion extends QuizEditorEvent {
   final int questionId;
@@ -952,22 +955,37 @@ class QuizEditorBloc extends Bloc<QuizEditorEvent, QuizEditorState> {
   }
 
   void _onAddQuestion(AddQuestion event, Emitter<QuizEditorState> emit) {
-    final newQuestion = QuestionEntity(
-      id: DateTime.now().millisecondsSinceEpoch,
-      text: '', // Texte vide par défaut
-      answers: [
-        AnswerEntity(
-          id: DateTime.now().millisecondsSinceEpoch + 1,
-          text: '', // Texte vide par défaut
-          isCorrect: true,
-        ),
-        AnswerEntity(
-          id: DateTime.now().millisecondsSinceEpoch + 2,
-          text: '', // Texte vide par défaut
-          isCorrect: false,
-        ),
-      ],
-    );
+    final QuestionEntity newQuestion;
+
+    if (event.type == QuestionType.mcq) {
+      newQuestion = QuestionEntity(
+        id: DateTime.now().millisecondsSinceEpoch,
+        text: '',
+        questionType: QuestionType.mcq,
+        answers: [
+          AnswerEntity(
+            id: DateTime.now().millisecondsSinceEpoch + 1,
+            text: '',
+            isCorrect: true,
+          ),
+          AnswerEntity(
+            id: DateTime.now().millisecondsSinceEpoch + 2,
+            text: '',
+            isCorrect: false,
+          ),
+        ],
+      );
+    } else {
+      // fill_in_the_blank
+      newQuestion = QuestionEntity(
+        id: DateTime.now().millisecondsSinceEpoch,
+        text: 'Votre phrase avec {{blank}} ici.',
+        questionType: QuestionType.fill_in_the_blank,
+        correctTextAnswer: '',
+        answers: const [],
+      );
+    }
+
     final updatedQuestions = List<QuestionEntity>.from(state.quiz.questions)
       ..add(newQuestion);
     emit(
@@ -1071,27 +1089,42 @@ class QuizEditorBloc extends Bloc<QuizEditorEvent, QuizEditorState> {
         emit(state.copyWith(status: QuizEditorStatus.loaded));
         return;
       }
-      if (question.answers.length < 2) {
-        emit(
-          state.copyWith(
-            status: QuizEditorStatus.failure,
-            error: "Chaque question doit avoir au moins 2 réponses.",
-          ),
-        );
-        await Future.delayed(const Duration(seconds: 2));
-        emit(state.copyWith(status: QuizEditorStatus.loaded));
-        return;
-      }
-      if (!question.answers.any((a) => a.isCorrect)) {
-        emit(
-          state.copyWith(
-            status: QuizEditorStatus.failure,
-            error: "Chaque question doit avoir une bonne réponse sélectionnée.",
-          ),
-        );
-        await Future.delayed(const Duration(seconds: 2));
-        emit(state.copyWith(status: QuizEditorStatus.loaded));
-        return;
+      if (question.questionType == QuestionType.mcq) {
+        if (question.answers.length < 2) {
+          emit(
+            state.copyWith(
+              status: QuizEditorStatus.failure,
+              error: "Chaque QCM doit avoir au moins 2 réponses.",
+            ),
+          );
+          await Future.delayed(const Duration(seconds: 2));
+          emit(state.copyWith(status: QuizEditorStatus.loaded));
+          return;
+        }
+        if (!question.answers.any((a) => a.isCorrect)) {
+          emit(
+            state.copyWith(
+              status: QuizEditorStatus.failure,
+              error: "Chaque QCM doit avoir une bonne réponse.",
+            ),
+          );
+          await Future.delayed(const Duration(seconds: 2));
+          emit(state.copyWith(status: QuizEditorStatus.loaded));
+          return;
+        }
+      } else {
+        // fill_in_the_blank
+        if ((question.correctTextAnswer ?? '').trim().isEmpty) {
+          emit(
+            state.copyWith(
+              status: QuizEditorStatus.failure,
+              error: "Chaque question à trou doit avoir une réponse correcte.",
+            ),
+          );
+          await Future.delayed(const Duration(seconds: 2));
+          emit(state.copyWith(status: QuizEditorStatus.loaded));
+          return;
+        }
       }
     }
 

@@ -33,7 +33,7 @@ class LearnerDashboardPage extends StatelessWidget {
             context,
             icon: Icons.assignment_turned_in_outlined,
             label: 'Mes Rendus',
-            // MISE A JOUR : Navigue vers la nouvelle page des rendus de l'élève.
+            // Navigue vers la page des rendus de l'élève.
             onTap: () => context.push('/my-submissions'),
           ),
           // Carte 3: Corrections
@@ -41,32 +41,16 @@ class LearnerDashboardPage extends StatelessWidget {
             context,
             icon: Icons.check_circle_outline,
             label: 'Corrections',
-            onTap: () {
-              // Action temporaire.
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'La page "Corrections" est en cours de construction !',
-                  ),
-                ),
-              );
-            },
+            // Navigue vers la nouvelle page des corrections.
+            onTap: () => context.push('/my-corrections'),
           ),
           // Carte 4: Évaluations
           _buildDashboardCard(
             context,
             icon: Icons.quiz_outlined,
             label: 'Évaluations',
-            onTap: () {
-              // Action temporaire.
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'La page "Évaluations" est en cours de construction !',
-                  ),
-                ),
-              );
-            },
+            // MISE À JOUR : Redirige vers la nouvelle page des évaluations.
+            onTap: () => context.push('/my-evaluations'),
           ),
         ],
       ),

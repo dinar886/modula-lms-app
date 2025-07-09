@@ -18,11 +18,11 @@ $quiz_id = 0;
 if (isset($_GET['quiz_id']) && !empty($_GET['quiz_id'])) {
     // CAS 1: L'instructeur modifie le quiz, on a directement le quiz_id.
     $quiz_id = (int)$_GET['quiz_id'];
-} 
+}
 elseif (isset($_GET['lesson_id']) && !empty($_GET['lesson_id'])) {
     // CAS 2: L'étudiant visionne la leçon, on doit trouver le quiz_id.
     $lesson_id = (int)$_GET['lesson_id'];
-    
+
     // On cherche dans les blocs de contenu le premier bloc de type 'quiz' pour cette leçon.
     $stmt_find = $conn->prepare("SELECT content FROM lesson_content_blocks WHERE lesson_id = ? AND block_type = 'quiz' LIMIT 1");
     $stmt_find->bind_param("i", $lesson_id);
@@ -57,7 +57,7 @@ $result_quiz = $stmt_quiz->get_result();
 
 if ($result_quiz->num_rows > 0) {
     $quiz_row = $result_quiz->fetch_assoc();
-    
+
     $quiz_data = [
         'id' => (int)$quiz_row['id'],
         'title' => $quiz_row['title'],
@@ -65,7 +65,8 @@ if ($result_quiz->num_rows > 0) {
         'questions' => []
     ];
 
-    $sql_questions = "SELECT id, question_text FROM questions WHERE quiz_id = ? ORDER BY order_index ASC";
+    // MODIFICATION : On récupère les nouveaux champs de la table questions.
+    $sql_questions = "SELECT id, question_text, question_type, correct_text_answer FROM questions WHERE quiz_id = ? ORDER BY order_index ASC";
     $stmt_questions = $conn->prepare($sql_questions);
     $stmt_questions->bind_param("i", $quiz_id);
     $stmt_questions->execute();
@@ -74,28 +75,33 @@ if ($result_quiz->num_rows > 0) {
     if ($result_questions->num_rows > 0) {
         while ($question_row = $result_questions->fetch_assoc()) {
             $question_id = $question_row['id'];
-            
+
             $question_data = [
                 'id' => (int)$question_id,
                 'question_text' => $question_row['question_text'],
+                'question_type' => $question_row['question_type'], // Nouveau
+                'correct_text_answer' => $question_row['correct_text_answer'], // Nouveau
                 'answers' => []
             ];
 
-            $sql_answers = "SELECT id, answer_text, is_correct FROM answers WHERE question_id = ?";
-            $stmt_answers = $conn->prepare($sql_answers);
-            $stmt_answers->bind_param("i", $question_id);
-            $stmt_answers->execute();
-            $result_answers = $stmt_answers->get_result();
+            // On ne cherche les réponses que si c'est un QCM.
+            if ($question_row['question_type'] === 'mcq') {
+                $sql_answers = "SELECT id, answer_text, is_correct FROM answers WHERE question_id = ?";
+                $stmt_answers = $conn->prepare($sql_answers);
+                $stmt_answers->bind_param("i", $question_id);
+                $stmt_answers->execute();
+                $result_answers = $stmt_answers->get_result();
 
-            if ($result_answers->num_rows > 0) {
-                while ($answer_row = $result_answers->fetch_assoc()) {
-                    $answer_row['id'] = (int)$answer_row['id'];
-                    $answer_row['is_correct'] = (bool)$answer_row['is_correct'];
-                    $question_data['answers'][] = $answer_row;
+                if ($result_answers->num_rows > 0) {
+                    while ($answer_row = $result_answers->fetch_assoc()) {
+                        $answer_row['id'] = (int)$answer_row['id'];
+                        $answer_row['is_correct'] = (bool)$answer_row['is_correct'];
+                        $question_data['answers'][] = $answer_row;
+                    }
                 }
+                $stmt_answers->close();
             }
-            $stmt_answers->close();
-            
+
             $quiz_data['questions'][] = $question_data;
         }
     }

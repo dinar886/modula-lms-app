@@ -13,8 +13,6 @@ import 'package:modula_lms/features/course_player/course_player_logic.dart';
 import 'package:video_player/video_player.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 
-// Le reste de la page (LessonViewerPage, AssignmentViewWidget, etc.) est INCHANGÉ
-
 class LessonViewerPage extends StatelessWidget {
   final int lessonId;
   final String courseId;
@@ -29,20 +27,11 @@ class LessonViewerPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final studentId = context.read<AuthenticationBloc>().state.user.id;
 
-    // On utilise MultiBlocProvider pour fournir les deux BLoCs à l'arbre des widgets.
-    return MultiBlocProvider(
-      providers: [
-        BlocProvider(
-          create: (context) => sl<LessonDetailBloc>()
+    // Le BlocProvider pour le LessonDetailBloc gère l'état de la leçon.
+    return BlocProvider(
+      create: (context) =>
+          sl<LessonDetailBloc>()
             ..add(FetchLessonDetails(lessonId: lessonId, studentId: studentId)),
-        ),
-        // Le QuizBloc est maintenant fourni ici pour être accessible globalement sur la page.
-        BlocProvider(
-          create: (context) =>
-              sl<QuizBloc>()
-                ..add(FetchQuiz(lessonId: lessonId, studentId: studentId)),
-        ),
-      ],
       child: Scaffold(
         body: BlocConsumer<LessonDetailBloc, LessonDetailState>(
           listener: (context, state) {
@@ -90,11 +79,13 @@ class LessonViewerPage extends StatelessWidget {
       slivers: [
         SliverAppBar(title: Text(lesson.title), pinned: true, floating: true),
 
+        // Si c'est un devoir, on affiche le widget de gestion du rendu.
         if (isAssignment)
           SliverToBoxAdapter(
             child: AssignmentViewWidget(lesson: lesson, courseId: courseId),
           ),
 
+        // Affiche l'énoncé de la leçon (les blocs de contenu).
         if (lesson.contentBlocks.isEmpty)
           const SliverFillRemaining(
             child: Center(child: Text("Cette activité n'a pas d'énoncé.")),
@@ -110,6 +101,7 @@ class LessonViewerPage extends StatelessWidget {
     );
   }
 
+  // Affiche le widget approprié en fonction du type de bloc.
   Widget _buildBlockWidget(
     BuildContext context,
     ContentBlockEntity block,
@@ -152,7 +144,18 @@ class LessonViewerPage extends StatelessWidget {
           ),
         );
       case ContentBlockType.quiz:
-        return QuizBlockWidget(lessonId: lessonId);
+        final quizId = int.tryParse(block.content) ?? 0;
+        final maxAttempts =
+            (block.metadata['max_attempts'] as num?)?.toInt() ?? -1;
+        if (quizId > 0) {
+          return QuizBlockWidget(
+            quizId: quizId,
+            lessonId: lessonId,
+            maxAttempts: maxAttempts,
+          );
+        }
+        return const SizedBox.shrink();
+
       case ContentBlockType.unknown:
       default:
         return const SizedBox.shrink();
@@ -161,7 +164,7 @@ class LessonViewerPage extends StatelessWidget {
 }
 
 // =======================================================================
-// WIDGET POUR LA VUE DEVOIR/ÉVALUATION (Mis à jour)
+// WIDGET POUR LA VUE DEVOIR/ÉVALUATION (Logique de validation corrigée)
 // =======================================================================
 class AssignmentViewWidget extends StatelessWidget {
   final LessonEntity lesson;
@@ -175,56 +178,52 @@ class AssignmentViewWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // On écoute les deux BLoCs pour obtenir toutes les informations nécessaires.
+    // On écoute l'état du LessonDetailBloc pour avoir les dernières informations.
     final lessonDetailState = context.watch<LessonDetailBloc>().state;
-    final quizState = context.watch<QuizBloc>().state;
 
-    // Sécurité : si l'état n'est pas encore chargé, on n'affiche rien.
     if (lessonDetailState is! LessonDetailLoaded) {
       return const SizedBox.shrink();
     }
 
-    // Extraction des données des états.
     final submissionContent = lessonDetailState.submissionContent;
     final submission = lesson.submission;
 
-    // =======================================================================
-    // NOUVELLE LOGIQUE DE VALIDATION DE LA SOUMISSION
-    // =======================================================================
-    final hasQuiz = lesson.contentBlocks.any(
-      (b) => b.blockType == ContentBlockType.quiz,
-    );
-    final hasSubmissionPlaceholder = lesson.contentBlocks.any(
-      (b) => b.blockType == ContentBlockType.submission_placeholder,
-    );
+    // --- LOGIQUE DE VALIDATION CORRIGÉE ---
 
-    // [CORRECTION] : On vérifie maintenant si le quiz a été soumis (validé)
-    // et non plus si une simple réponse a été sélectionnée.
-    final isQuizSubmitted =
-        quizState.status == QuizStatus.submitted ||
-        quizState.status == QuizStatus.showingResult;
+    // 1. On identifie ce qui est requis pour ce devoir.
+    final allQuizBlocks = lesson.contentBlocks
+        .where((b) => b.blockType == ContentBlockType.quiz)
+        .toList();
+    final allPlaceholderBlocks = lesson.contentBlocks
+        .where((b) => b.blockType == ContentBlockType.submission_placeholder)
+        .toList();
 
-    // Condition 2 : L'élève a-t-il téléversé au moins un fichier (et l'upload est terminé) ?
-    final isFileUploaded = submissionContent.any(
-      (b) => b.uploadStatus == UploadStatus.completed,
-    );
+    final bool requiresQuiz = allQuizBlocks.isNotEmpty;
+    final bool requiresFile = allPlaceholderBlocks.isNotEmpty;
 
+    // 2. On vérifie si les conditions sont remplies.
+    final bool allQuizzesCompleted =
+        requiresQuiz &&
+        lessonDetailState.completedQuizIds.length >= allQuizBlocks.length;
+
+    final bool allFilesUploaded =
+        requiresFile &&
+        submissionContent.any((b) => b.uploadStatus == UploadStatus.completed);
+
+    // 3. On détermine si le bouton "Rendre" doit être activé.
     bool isReadyToSubmit = false;
-
-    // Cas 1 : Placeholder ET Quiz
-    if (hasSubmissionPlaceholder && hasQuiz) {
-      isReadyToSubmit = isFileUploaded && isQuizSubmitted;
-      // Cas 2 : Placeholder seulement
-    } else if (hasSubmissionPlaceholder) {
-      isReadyToSubmit = isFileUploaded;
-      // Cas 3 : Quiz seulement
-    } else if (hasQuiz) {
-      isReadyToSubmit = isQuizSubmitted;
-      // Cas 4 : Ni placeholder, ni quiz (l'élève doit juste confirmer la lecture)
-    } else {
-      isReadyToSubmit = true;
+    if (requiresQuiz && requiresFile) {
+      // Cas 1: Quiz ET Fichier requis
+      isReadyToSubmit = allQuizzesCompleted && allFilesUploaded;
+    } else if (requiresQuiz && !requiresFile) {
+      // Cas 2: Uniquement Quiz requis
+      isReadyToSubmit = allQuizzesCompleted;
+    } else if (!requiresQuiz && requiresFile) {
+      // Cas 3: Uniquement Fichier requis
+      isReadyToSubmit = allFilesUploaded;
     }
 
+    // On ne peut rendre le travail que s'il n'a pas déjà été soumis.
     final bool canSubmit = submission == null;
 
     return Card(
@@ -263,8 +262,8 @@ class AssignmentViewWidget extends StatelessWidget {
                   ? FilledButton.icon(
                       icon: const Icon(Icons.upload_file),
                       label: const Text('Confirmer et Rendre le Travail'),
-                      // Le bouton est activé si `canSubmit` ET `isReadyToSubmit` sont vrais.
-                      onPressed: canSubmit && isReadyToSubmit
+                      // Le bouton est activé seulement si `isReadyToSubmit` est vrai.
+                      onPressed: isReadyToSubmit
                           ? () => _confirmSubmission(context)
                           : null,
                     )
@@ -365,9 +364,7 @@ class AssignmentViewWidget extends StatelessWidget {
   }
 }
 
-// =======================================================================
-// WIDGET POUR LE PLACEHOLDER DE RENDU
-// =======================================================================
+// Le reste des widgets (SubmissionPlaceholder, Image, Text, Video) reste inchangé
 class SubmissionPlaceholderWidget extends StatelessWidget {
   const SubmissionPlaceholderWidget({super.key});
 
@@ -444,9 +441,6 @@ class SubmissionPlaceholderWidget extends StatelessWidget {
   }
 }
 
-// =======================================================================
-// WIDGETS DE VISUALISATION (Inchangés)
-// =======================================================================
 class ImageWidget extends StatelessWidget {
   final String? imageUrl;
   final Map<String, dynamic> metadata;
@@ -656,66 +650,97 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
 // WIDGET DU QUIZ (FORTEMENT MODIFIÉ)
 // =======================================================================
 class QuizBlockWidget extends StatelessWidget {
+  final int quizId;
   final int lessonId;
+  final int maxAttempts;
 
-  const QuizBlockWidget({super.key, required this.lessonId});
+  const QuizBlockWidget({
+    super.key,
+    required this.quizId,
+    required this.lessonId,
+    required this.maxAttempts,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<QuizBloc, QuizState>(
-      builder: (context, state) {
-        switch (state.status) {
-          case QuizStatus.loading:
-          case QuizStatus.initial:
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: CircularProgressIndicator(),
-              ),
-            );
+    final studentId = context.read<AuthenticationBloc>().state.user.id;
+    // Chaque QuizBlockWidget a son propre BlocProvider pour gérer son état local.
+    return BlocProvider(
+      create: (context) => sl<QuizBloc>()
+        ..add(
+          FetchQuiz(
+            quizId: quizId,
+            studentId: studentId,
+            maxAttempts: maxAttempts,
+          ),
+        ),
+      // BlocListener pour communiquer avec le LessonDetailBloc parent.
+      child: BlocListener<QuizBloc, QuizState>(
+        listener: (context, state) {
+          // Si le quiz est terminé (résultat affiché ou tentatives épuisées),
+          // on notifie la page parente.
+          final isQuizFinished =
+              state.status == QuizStatus.showingResult ||
+              (state.status == QuizStatus.loaded && !state.canAttemptQuiz);
 
-          case QuizStatus.submitted:
-            // Nouvel état pour l'attente de la réponse serveur
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text("Correction en cours..."),
-                  ],
-                ),
-              ),
-            );
+          if (isQuizFinished) {
+            context.read<LessonDetailBloc>().add(QuizCompletedInLesson(quizId));
+          }
+        },
+        child: BlocBuilder<QuizBloc, QuizState>(
+          builder: (context, state) {
+            switch (state.status) {
+              case QuizStatus.loading:
+              case QuizStatus.initial:
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: CircularProgressIndicator(),
+                  ),
+                );
 
-          case QuizStatus.failure:
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text(
-                  "Erreur : ${state.error}",
-                  style: const TextStyle(color: Colors.red),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            );
+              case QuizStatus.submitted:
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text("Correction en cours..."),
+                      ],
+                    ),
+                  ),
+                );
 
-          case QuizStatus.showingResult:
-            // État principal pour afficher les résultats détaillés
-            return _buildQuizResult(context, state);
+              case QuizStatus.failure:
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text(
+                      "Erreur : ${state.error}",
+                      style: const TextStyle(color: Colors.red),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                );
 
-          case QuizStatus.loaded:
-            if (!state.canAttemptQuiz) {
-              return _buildAttemptsExceeded(context);
+              case QuizStatus.showingResult:
+                return _buildQuizResult(context, state);
+
+              case QuizStatus.loaded:
+                if (!state.canAttemptQuiz) {
+                  return _buildAttemptsExceeded(context, state);
+                }
+                return _buildQuizForm(context, state);
+
+              default:
+                return const SizedBox.shrink();
             }
-            return _buildQuizForm(context, state);
-
-          default:
-            return const SizedBox.shrink();
-        }
-      },
+          },
+        ),
+      ),
     );
   }
 
@@ -749,33 +774,7 @@ class QuizBlockWidget extends StatelessWidget {
             ...state.quiz.questions.map((question) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      question.text,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    ...question.answers.map((answer) {
-                      return RadioListTile<int>(
-                        title: Text(answer.text),
-                        value: answer.id,
-                        groupValue: state.userAnswers[question.id],
-                        onChanged: (value) {
-                          if (value != null) {
-                            context.read<QuizBloc>().add(
-                              AnswerSelected(
-                                questionId: question.id,
-                                answerId: value,
-                              ),
-                            );
-                          }
-                        },
-                      );
-                    }),
-                  ],
-                ),
+                child: _buildQuestionInput(context, question, state),
               );
             }).toList(),
             const SizedBox(height: 16),
@@ -800,7 +799,23 @@ class QuizBlockWidget extends StatelessWidget {
     );
   }
 
-  // --- NOUVEAU WIDGET : Pour afficher le résultat détaillé du quiz ---
+  // NOUVEAU WIDGET : Pour afficher le bon type d'input par question
+  Widget _buildQuestionInput(
+    BuildContext context,
+    QuestionEntity question,
+    QuizState state,
+  ) {
+    if (question.questionType == QuestionType.fill_in_the_blank) {
+      return _FillInTheBlankInput(question: question);
+    }
+    // Par défaut, c'est un QCM
+    return _McqInput(
+      question: question,
+      groupValue: state.userAnswers[question.id],
+    );
+  }
+
+  // --- Widget pour afficher les résultats détaillés du quiz ---
   Widget _buildQuizResult(BuildContext context, QuizState state) {
     final attempt = state.lastAttempt;
     if (attempt == null) {
@@ -816,7 +831,6 @@ class QuizBlockWidget extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // En-tête avec le score
             Text(
               "Résultats du Quiz",
               style: Theme.of(context).textTheme.headlineSmall,
@@ -842,69 +856,24 @@ class QuizBlockWidget extends StatelessWidget {
               ),
             ),
             const Divider(height: 32),
-
-            // Liste des questions avec la correction
             ...state.quiz.questions.map((question) {
-              final selectedAnswerId = attempt.answers[question.id];
-              final correctAnswer = question.answers.firstWhere(
-                (a) => a.isCorrect,
-              );
+              final userAnswer = attempt.answers[question.id];
+              final bool isCorrect = question.questionType == QuestionType.mcq
+                  ? userAnswer ==
+                        question.answers.firstWhere((a) => a.isCorrect).id
+                  : (userAnswer as String? ?? '').toLowerCase().trim() ==
+                        (question.correctTextAnswer ?? '').toLowerCase().trim();
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 24.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      question.text,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    ...question.answers.map((answer) {
-                      final bool isSelected = answer.id == selectedAnswerId;
-                      final bool isCorrect = answer.isCorrect;
-
-                      Color? tileColor;
-                      Icon? trailingIcon;
-
-                      if (isCorrect) {
-                        tileColor = Colors.green.withOpacity(0.15);
-                        trailingIcon = const Icon(
-                          Icons.check_circle,
-                          color: Colors.green,
-                        );
-                      }
-                      if (isSelected && !isCorrect) {
-                        tileColor = Colors.red.withOpacity(0.15);
-                        trailingIcon = const Icon(
-                          Icons.cancel,
-                          color: Colors.red,
-                        );
-                      }
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 4),
-                        decoration: BoxDecoration(
-                          color: tileColor,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: ListTile(
-                          title: Text(answer.text),
-                          leading: Radio<int>(
-                            value: answer.id,
-                            groupValue: selectedAnswerId,
-                            onChanged: null, // Désactivé en mode résultat
-                          ),
-                          trailing: trailingIcon,
-                        ),
-                      );
-                    }),
-                  ],
+                child: _buildQuestionResult(
+                  context,
+                  question,
+                  userAnswer,
+                  isCorrect,
                 ),
               );
             }),
-
-            // Bouton pour recommencer si possible
             if (state.canAttemptQuiz) ...[
               const Divider(height: 32),
               Center(
@@ -923,8 +892,31 @@ class QuizBlockWidget extends StatelessWidget {
     );
   }
 
-  // --- Widget pour le message "Tentatives épuisées" (INCHANGÉ) ---
-  Widget _buildAttemptsExceeded(BuildContext context) {
+  // NOUVEAU WIDGET : Pour afficher la correction d'une question
+  Widget _buildQuestionResult(
+    BuildContext context,
+    QuestionEntity question,
+    dynamic userAnswer,
+    bool isCorrect,
+  ) {
+    if (question.questionType == QuestionType.fill_in_the_blank) {
+      return _FillInTheBlankResult(
+        question: question,
+        userAnswer: userAnswer as String? ?? '',
+        isCorrect: isCorrect,
+      );
+    }
+
+    // Par défaut, QCM
+    return _McqResult(
+      question: question,
+      selectedAnswerId: userAnswer as int?,
+      isCorrect: isCorrect,
+    );
+  }
+
+  // --- Widget pour le message "Tentatives épuisées" ---
+  Widget _buildAttemptsExceeded(BuildContext context, QuizState state) {
     return Card(
       margin: const EdgeInsets.all(16.0),
       color: Colors.orange.shade50,
@@ -947,9 +939,217 @@ class QuizBlockWidget extends StatelessWidget {
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
+            if (state.lastAttempt != null) ...[
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  context.read<QuizBloc>().add(
+                    FetchQuiz(
+                      quizId: state.quiz.id,
+                      studentId: context
+                          .read<AuthenticationBloc>()
+                          .state
+                          .user
+                          .id,
+                      maxAttempts: 0,
+                    ),
+                  );
+                },
+                child: const Text("Voir mon dernier résultat"),
+              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+}
+
+// --- WIDGETS SPÉCIFIQUES POUR LES TYPES DE QUESTIONS ---
+
+// --- INPUTS ---
+class _McqInput extends StatelessWidget {
+  final QuestionEntity question;
+  final int? groupValue;
+  const _McqInput({required this.question, this.groupValue});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(question.text, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        ...question.answers.map((answer) {
+          return RadioListTile<int>(
+            title: Text(answer.text),
+            value: answer.id,
+            groupValue: groupValue,
+            onChanged: (value) {
+              if (value != null) {
+                context.read<QuizBloc>().add(
+                  AnswerSelected(questionId: question.id, answerId: value),
+                );
+              }
+            },
+          );
+        }),
+      ],
+    );
+  }
+}
+
+class _FillInTheBlankInput extends StatelessWidget {
+  final QuestionEntity question;
+  const _FillInTheBlankInput({super.key, required this.question});
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = question.text.split('{{blank}}');
+    final textBefore = parts.isNotEmpty ? parts[0] : '';
+    final textAfter = parts.length > 1 ? parts[1] : '';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 4,
+          runSpacing: 8,
+          children: [
+            if (textBefore.isNotEmpty)
+              Text(textBefore, style: Theme.of(context).textTheme.titleMedium),
+            SizedBox(
+              width: 150,
+              child: TextField(
+                onChanged: (value) {
+                  context.read<QuizBloc>().add(
+                    TextAnswerChanged(questionId: question.id, text: value),
+                  );
+                },
+                decoration: const InputDecoration(
+                  hintText: 'Votre réponse',
+                  isDense: true,
+                ),
+              ),
+            ),
+            if (textAfter.isNotEmpty)
+              Text(textAfter, style: Theme.of(context).textTheme.titleMedium),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// --- RESULTS ---
+
+class _McqResult extends StatelessWidget {
+  final QuestionEntity question;
+  final int? selectedAnswerId;
+  final bool isCorrect;
+  const _McqResult({
+    required this.question,
+    this.selectedAnswerId,
+    required this.isCorrect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(question.text, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        ...question.answers.map((answer) {
+          final bool isSelected = answer.id == selectedAnswerId;
+          final bool isCorrectAnswer = answer.isCorrect;
+
+          Color? tileColor;
+          Icon? trailingIcon;
+
+          if (isCorrectAnswer) {
+            tileColor = Colors.green.withOpacity(0.15);
+            trailingIcon = const Icon(Icons.check_circle, color: Colors.green);
+          }
+          if (isSelected && !isCorrectAnswer) {
+            tileColor = Colors.red.withOpacity(0.15);
+            trailingIcon = const Icon(Icons.cancel, color: Colors.red);
+          }
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 4),
+            decoration: BoxDecoration(
+              color: tileColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ListTile(
+              title: Text(answer.text),
+              leading: Radio<int>(
+                value: answer.id,
+                groupValue: selectedAnswerId,
+                onChanged: null,
+              ),
+              trailing: trailingIcon,
+            ),
+          );
+        }),
+      ],
+    );
+  }
+}
+
+class _FillInTheBlankResult extends StatelessWidget {
+  final QuestionEntity question;
+  final String userAnswer;
+  final bool isCorrect;
+  const _FillInTheBlankResult({
+    required this.question,
+    required this.userAnswer,
+    required this.isCorrect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = question.text.split('{{blank}}');
+    final textBefore = parts.isNotEmpty ? parts[0] : '';
+    final textAfter = parts.length > 1 ? parts[1] : '';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 4,
+          children: [
+            if (textBefore.isNotEmpty)
+              Text(textBefore, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              userAnswer.isNotEmpty ? userAnswer : '______',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: isCorrect ? Colors.green : Colors.red,
+                decoration: isCorrect
+                    ? TextDecoration.none
+                    : TextDecoration.lineThrough,
+              ),
+            ),
+            if (textAfter.isNotEmpty)
+              Text(textAfter, style: Theme.of(context).textTheme.titleMedium),
+          ],
+        ),
+        if (!isCorrect)
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Text(
+              "Bonne réponse : ${question.correctTextAnswer}",
+              style: const TextStyle(
+                color: Colors.green,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

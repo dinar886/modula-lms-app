@@ -59,6 +59,9 @@ $result = $stmt->get_result();
 
 $submissions = [];
 while ($row = $result->fetch_assoc()) {
+    // CORRECTION : On s'assure que la note est bien un nombre (float) ou null.
+    // C'est la correction principale pour ce fichier.
+    $row['grade'] = $row['grade'] !== null ? (float)$row['grade'] : null;
     $submissions[] = $row;
 }
 

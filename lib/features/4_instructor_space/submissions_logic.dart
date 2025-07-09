@@ -42,13 +42,16 @@ class SubmissionSummaryEntity extends Equatable {
       submissionId: json['submission_id'],
       status: json['status'],
       submissionDate: DateTime.parse(json['submission_date']),
-      grade: json['grade'] != null ? (json['grade'] as num).toDouble() : null,
+      // CORRECTION : Utilisation de `double.tryParse` pour une conversion plus sûre.
+      // Cela fonctionne que la valeur soit un nombre, une chaîne, ou null.
+      grade: json['grade'] != null
+          ? double.tryParse(json['grade'].toString())
+          : null,
       studentId: json['student_id'],
       studentName: json['student_name'],
       studentImageUrl: json['student_image_url'],
       lessonId: json['lesson_id'],
       lessonTitle: json['lesson_title'],
-      // Cet appel est maintenant valide grâce à la correction dans le fichier 1.
       lessonType: LessonEntity.lessonTypeFromString(json['lesson_type']),
       courseId: json['course_id'],
       courseTitle: json['course_title'],
