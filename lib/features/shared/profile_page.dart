@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/1_auth/auth_feature.dart';
+import 'package:modula_lms/features/shared/stripe_logic.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -14,32 +15,52 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
-  // Contrôleurs pour les champs de texte en mode édition
+// *** CORRECTION 1 : On ajoute "with WidgetsBindingObserver" ***
+// Cela permet à notre widget d'écouter les changements de cycle de vie de l'application (ex: mise en avant-plan).
+class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   late final TextEditingController _nameController;
   late final TextEditingController _emailController;
 
-  // État pour gérer le mode édition et la nouvelle image
   bool _isEditing = false;
   XFile? _imageFile;
 
   @override
   void initState() {
     super.initState();
-    // On initialise les contrôleurs avec les données de l'utilisateur actuel
     final user = context.read<AuthenticationBloc>().state.user;
     _nameController = TextEditingController(text: user.name);
     _emailController = TextEditingController(text: user.email);
+
+    // *** CORRECTION 2 : On enregistre l'observateur ***
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
+
+    // *** CORRECTION 3 : On supprime l'observateur pour éviter les fuites de mémoire ***
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  // Fonction pour sélectionner une image depuis la galerie
+  // *** CORRECTION 4 : On implémente la méthode qui réagit aux changements de cycle de vie ***
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Si l'application revient en avant-plan (après avoir quitté le navigateur pour Stripe)...
+    if (state == AppLifecycleState.resumed) {
+      final user = context.read<AuthenticationBloc>().state.user;
+      // ...et si l'utilisateur est un formateur...
+      if (user.role == UserRole.instructor && mounted) {
+        // ...on relance la vérification du statut Stripe pour rafraîchir l'interface.
+        context.read<StripeBloc>().add(
+          FetchStripeAccountStatus(userId: user.id),
+        );
+      }
+    }
+  }
+
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(
@@ -55,25 +76,33 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    // On utilise BlocProvider pour créer une instance de AuthBloc
-    // qui gérera la logique de mise à jour du profil.
-    return BlocProvider(
-      create: (context) => sl<AuthBloc>(),
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(create: (context) => sl<AuthBloc>()),
+        BlocProvider(
+          create: (context) {
+            final user = context.read<AuthenticationBloc>().state.user;
+            // On lance la vérification du statut dès la création du BLoC
+            if (user.role == UserRole.instructor) {
+              return sl<StripeBloc>()
+                ..add(FetchStripeAccountStatus(userId: user.id));
+            }
+            return sl<StripeBloc>();
+          },
+        ),
+      ],
       child: Scaffold(
         appBar: AppBar(
           title: Text(_isEditing ? 'Modifier le Profil' : 'Profil'),
           actions: [
-            // On écoute l'état de l'AuthenticationBloc global
             BlocBuilder<AuthenticationBloc, AuthenticationState>(
               builder: (context, authState) {
                 if (authState.user.isNotEmpty) {
-                  // Affiche un bouton différent selon le mode (édition ou affichage)
                   return IconButton(
                     icon: Icon(_isEditing ? Icons.close : Icons.edit),
                     onPressed: () {
                       setState(() {
                         _isEditing = !_isEditing;
-                        // Si on annule l'édition, on réinitialise les valeurs
                         if (!_isEditing) {
                           final user = context
                               .read<AuthenticationBloc>()
@@ -90,7 +119,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 return const SizedBox.shrink();
               },
             ),
-            // Bouton de déconnexion
             IconButton(
               icon: const Icon(Icons.logout),
               onPressed: () {
@@ -101,8 +129,6 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ],
         ),
-        // Le corps de la page utilise un BlocConsumer pour écouter les changements d'état
-        // du AuthBloc (pour la mise à jour) et reconstruire l'interface.
         body: BlocConsumer<AuthBloc, AuthState>(
           listener: (context, state) {
             if (state is AuthFailure) {
@@ -120,7 +146,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   backgroundColor: Colors.green,
                 ),
               );
-              // On quitte le mode édition après une sauvegarde réussie
               setState(() {
                 _isEditing = false;
                 _imageFile = null;
@@ -128,7 +153,6 @@ class _ProfilePageState extends State<ProfilePage> {
             }
           },
           builder: (context, profileUpdateState) {
-            // On écoute aussi le Bloc global pour avoir les données utilisateur à jour
             return BlocBuilder<AuthenticationBloc, AuthenticationState>(
               builder: (context, authState) {
                 if (authState.user.isEmpty) {
@@ -137,7 +161,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   );
                 }
 
-                // On met à jour les contrôleurs si l'utilisateur change (après sauvegarde)
                 if (!_isEditing) {
                   _nameController.text = authState.user.name;
                   _emailController.text = authState.user.email;
@@ -147,13 +170,13 @@ class _ProfilePageState extends State<ProfilePage> {
                   padding: const EdgeInsets.all(24.0),
                   children: [
                     const SizedBox(height: 20),
-                    // --- AVATAR ---
                     Center(
                       child: Stack(
                         children: [
                           CircleAvatar(
                             radius: 60,
                             backgroundImage: _buildAvatarImage(authState.user),
+                            backgroundColor: Colors.grey.shade300,
                             child:
                                 _imageFile == null &&
                                     (authState.user.profileImageUrl == null ||
@@ -164,9 +187,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     color: Colors.white,
                                   )
                                 : null,
-                            backgroundColor: Colors.grey.shade300,
                           ),
-                          // Affiche un bouton pour changer l'image en mode édition
                           if (_isEditing)
                             Positioned(
                               bottom: 0,
@@ -192,8 +213,6 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ),
                     const SizedBox(height: 32),
-
-                    // --- CHAMPS D'INFORMATIONS ---
                     _buildInfoField(
                       context: context,
                       controller: _nameController,
@@ -209,10 +228,18 @@ class _ProfilePageState extends State<ProfilePage> {
                       icon: Icons.email_outlined,
                       isEditing: _isEditing,
                     ),
-
+                    if (authState.user.role == UserRole.instructor) ...[
+                      const SizedBox(height: 24),
+                      const Divider(),
+                      const SizedBox(height: 16),
+                      Text(
+                        "Portefeuille Formateur",
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildStripeSection(context, authState.user),
+                    ],
                     const SizedBox(height: 40),
-
-                    // --- BOUTON DE SAUVEGARDE ---
                     if (_isEditing)
                       profileUpdateState is AuthLoading
                           ? const Center(child: CircularProgressIndicator())
@@ -243,7 +270,6 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  // Helper pour construire l'image de l'avatar
   ImageProvider? _buildAvatarImage(User user) {
     if (_imageFile != null) {
       return FileImage(File(_imageFile!.path));
@@ -254,7 +280,6 @@ class _ProfilePageState extends State<ProfilePage> {
     return null;
   }
 
-  // Widget réutilisable pour afficher un champ d'information (soit en texte, soit en champ de saisie)
   Widget _buildInfoField({
     required BuildContext context,
     required TextEditingController controller,
@@ -302,5 +327,110 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       );
     }
+  }
+
+  Widget _buildStripeSection(BuildContext context, User user) {
+    return BlocConsumer<StripeBloc, StripeState>(
+      listener: (context, state) {
+        if (state is StripeError) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur Stripe: ${state.message}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      },
+      builder: (context, state) {
+        if (state is StripeLoading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (state is StripeStatusLoaded) {
+          final status = state.status;
+          if (status.payoutsEnabled) {
+            return const Card(
+              color: Color(0xFF4CAF50),
+              child: ListTile(
+                leading: Icon(
+                  Icons.check_circle,
+                  color: Colors.white,
+                  size: 30,
+                ),
+                title: Text(
+                  "Votre compte est actif",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                subtitle: Text(
+                  "Vous pouvez recevoir des paiements.",
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ),
+            );
+          }
+          if (status.detailsSubmitted) {
+            return const Card(
+              color: Color(0xFFFB8C00),
+              child: ListTile(
+                leading: Icon(
+                  Icons.hourglass_top,
+                  color: Colors.white,
+                  size: 30,
+                ),
+                title: Text(
+                  "Vérification en cours",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                subtitle: Text(
+                  "Stripe vérifie vos informations.",
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ),
+            );
+          }
+        }
+
+        return Card(
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Icon(
+                  Icons.credit_card,
+                  size: 40,
+                  color: Colors.blueAccent,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  "Pour recevoir les paiements de vos élèves, vous devez configurer votre compte de paiement sécurisé avec Stripe.",
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  icon: const Icon(Icons.payment),
+                  label: const Text("Configurer les paiements"),
+                  onPressed: () {
+                    context.read<StripeBloc>().add(
+                      CreateStripeConnectAccount(
+                        userId: user.id,
+                        email: user.email,
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }

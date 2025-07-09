@@ -6,11 +6,12 @@ import 'package:modula_lms/features/1_auth/auth_feature.dart';
 import 'package:modula_lms/features/2_marketplace/marketplace_logic.dart';
 import 'package:modula_lms/features/3_learner_space/learner_space_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/instructor_space_logic.dart';
-import 'package:modula_lms/features/4_instructor_space/grading_logic.dart'; // NOUVEL IMPORT
+import 'package:modula_lms/features/4_instructor_space/grading_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/student_details_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/students_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/submissions_logic.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
+import 'package:modula_lms/features/shared/stripe_logic.dart'; // NOUVEL IMPORT
 
 // `sl` (Service Locator) est une instance globale de GetIt.
 final sl = GetIt.instance;
@@ -18,23 +19,31 @@ final sl = GetIt.instance;
 /// Fonction de configuration pour initialiser toutes les dépendances.
 void setupLocator() {
   // --- CORE ---
+  // Enregistre une instance unique (singleton) de ApiClient, créée paresseusement.
   sl.registerLazySingleton(() => ApiClient());
+  // Enregistre une instance unique de FlutterSecureStorage pour le stockage sécurisé.
   sl.registerLazySingleton(() => const FlutterSecureStorage());
 
   // --- AUTHENTICATION ---
+  // Enregistre le dépôt d'authentification comme un singleton paresseux.
   sl.registerLazySingleton(
     () => AuthenticationRepository(apiClient: sl(), secureStorage: sl()),
   );
+  // Enregistre le BLoC d'authentification principal comme un singleton paresseux.
   sl.registerLazySingleton(
     () => AuthenticationBloc(authenticationRepository: sl()),
   );
+  // Enregistre une nouvelle instance (factory) du AuthBloc pour les écrans spécifiques (login, register, profile).
   sl.registerFactory(() => AuthBloc(authenticationRepository: sl()));
 
   // --- MARKETPLACE (CATALOGUE DE COURS) ---
+  // Enregistre des factories pour les BLoCs du catalogue.
   sl.registerFactory(() => CourseBloc(getCourses: sl()));
   sl.registerFactory(() => CourseDetailBloc(getCourseDetails: sl()));
+  // Enregistre les cas d'utilisation (UseCases).
   sl.registerLazySingleton(() => GetCourses(sl()));
   sl.registerLazySingleton(() => GetCourseDetails(sl()));
+  // Enregistre les implémentations des dépôts et des sources de données.
   sl.registerLazySingleton<CourseRepository>(
     () => CourseRepositoryImpl(remoteDataSource: sl()),
   );
@@ -62,13 +71,15 @@ void setupLocator() {
   sl.registerFactory(() => QuizEditorBloc(apiClient: sl()));
   sl.registerFactory(() => CourseInfoEditorBloc(apiClient: sl()));
   sl.registerFactory(() => InstructorStudentsBloc(apiClient: sl()));
-  sl.registerFactory(() => GradingBloc(apiClient: sl())); // NOUVEL AJOUT
+  sl.registerFactory(() => GradingBloc(apiClient: sl()));
+  sl.registerFactory(() => SubmissionsBloc(apiClient: sl()));
 
   // --- DÉTAILS D'UN ÉLÈVE (Logique conservée) ---
   sl.registerFactory(() => StudentDetailsBloc(repository: sl()));
   sl.registerLazySingleton(() => StudentDetailsRepository(dataSource: sl()));
   sl.registerLazySingleton(() => StudentDetailsDataSource(apiClient: sl()));
 
-  // NOUVEL ENREGISTREMENT POUR LES RENDUS
-  sl.registerFactory(() => SubmissionsBloc(apiClient: sl()));
+  // --- STRIPE ---
+  // NOUVEL ENREGISTREMENT: Crée une nouvelle instance de StripeBloc à chaque demande.
+  sl.registerFactory(() => StripeBloc(apiClient: sl()));
 }
