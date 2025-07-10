@@ -5,13 +5,14 @@ import 'package:modula_lms/core/api/api_client.dart';
 import 'package:modula_lms/features/1_auth/auth_feature.dart';
 import 'package:modula_lms/features/2_marketplace/marketplace_logic.dart';
 import 'package:modula_lms/features/3_learner_space/learner_space_logic.dart';
+import 'package:modula_lms/features/4_instructor_space/instructor_dashboard_logic.dart'; // NOUVEL IMPORT
 import 'package:modula_lms/features/4_instructor_space/instructor_space_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/grading_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/student_details_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/students_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/submissions_logic.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
-import 'package:modula_lms/features/shared/stripe_logic.dart'; // NOUVEL IMPORT
+import 'package:modula_lms/features/shared/stripe_logic.dart';
 
 // `sl` (Service Locator) est une instance globale de GetIt.
 final sl = GetIt.instance;
@@ -73,6 +74,8 @@ void setupLocator() {
   sl.registerFactory(() => InstructorStudentsBloc(apiClient: sl()));
   sl.registerFactory(() => GradingBloc(apiClient: sl()));
   sl.registerFactory(() => SubmissionsBloc(apiClient: sl()));
+  // NOUVEL ENREGISTREMENT
+  sl.registerFactory(() => InstructorDashboardBloc(apiClient: sl()));
 
   // --- DÉTAILS D'UN ÉLÈVE (Logique conservée) ---
   sl.registerFactory(() => StudentDetailsBloc(repository: sl()));
