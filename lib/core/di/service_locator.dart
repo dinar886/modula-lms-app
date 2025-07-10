@@ -39,11 +39,17 @@ void setupLocator() {
 
   // --- MARKETPLACE (CATALOGUE DE COURS) ---
   // Enregistre des factories pour les BLoCs du catalogue.
-  sl.registerFactory(() => CourseBloc(getCourses: sl()));
+  sl.registerFactory(
+    () => CourseBloc(
+      getCourses: sl(),
+      getFilterOptions: sl(), // AJOUT du paramètre requis
+    ),
+  );
   sl.registerFactory(() => CourseDetailBloc(getCourseDetails: sl()));
   // Enregistre les cas d'utilisation (UseCases).
   sl.registerLazySingleton(() => GetCourses(sl()));
   sl.registerLazySingleton(() => GetCourseDetails(sl()));
+  sl.registerLazySingleton(() => GetFilterOptions(sl())); // NOUVEAU use case
   // Enregistre les implémentations des dépôts et des sources de données.
   sl.registerLazySingleton<CourseRepository>(
     () => CourseRepositoryImpl(remoteDataSource: sl()),

@@ -14,6 +14,9 @@ class CourseEntity extends Equatable {
   final String? description;
   final String imageUrl;
   final double price;
+  final String? category;
+  final double? rating;
+  final int? enrollmentCount;
 
   const CourseEntity({
     required this.id,
@@ -22,9 +25,11 @@ class CourseEntity extends Equatable {
     this.description,
     required this.imageUrl,
     required this.price,
+    this.category,
+    this.rating,
+    this.enrollmentCount,
   });
 
-  // **CORRECTION : Ajout de la méthode `copyWith`**
   CourseEntity copyWith({
     String? id,
     String? title,
@@ -32,6 +37,9 @@ class CourseEntity extends Equatable {
     String? description,
     String? imageUrl,
     double? price,
+    String? category,
+    double? rating,
+    int? enrollmentCount,
   }) {
     return CourseEntity(
       id: id ?? this.id,
@@ -40,6 +48,9 @@ class CourseEntity extends Equatable {
       description: description ?? this.description,
       imageUrl: imageUrl ?? this.imageUrl,
       price: price ?? this.price,
+      category: category ?? this.category,
+      rating: rating ?? this.rating,
+      enrollmentCount: enrollmentCount ?? this.enrollmentCount,
     );
   }
 
@@ -51,20 +62,107 @@ class CourseEntity extends Equatable {
       description: json['description'],
       imageUrl: json['image_url'],
       price: (json['price'] as num).toDouble(),
+      category: json['category'],
+      rating: json['rating'] != null
+          ? (json['rating'] as num).toDouble()
+          : null,
+      enrollmentCount: json['enrollment_count'] as int?,
     );
   }
 
   @override
-  List<Object?> get props => [id, title, author, description, imageUrl, price];
+  List<Object?> get props => [
+    id,
+    title,
+    author,
+    description,
+    imageUrl,
+    price,
+    category,
+    rating,
+    enrollmentCount,
+  ];
 }
 
-// ... le reste du fichier (DataSource, Repository, UseCases, BLoCs) reste inchangé
+//==============================================================================
+// ENUMS ET CLASSES POUR FILTRAGE
+//==============================================================================
+enum SortOption { popularity, priceAsc, priceDesc, rating, newest }
+
+enum PriceRange { all, free, under50, under100, over100 }
+
+class CourseFilter extends Equatable {
+  final String searchQuery;
+  final SortOption sortOption;
+  final PriceRange priceRange;
+  final List<String> selectedCategories;
+  final List<String> selectedAuthors;
+
+  const CourseFilter({
+    this.searchQuery = '',
+    this.sortOption = SortOption.popularity,
+    this.priceRange = PriceRange.all,
+    this.selectedCategories = const [],
+    this.selectedAuthors = const [],
+  });
+
+  CourseFilter copyWith({
+    String? searchQuery,
+    SortOption? sortOption,
+    PriceRange? priceRange,
+    List<String>? selectedCategories,
+    List<String>? selectedAuthors,
+  }) {
+    return CourseFilter(
+      searchQuery: searchQuery ?? this.searchQuery,
+      sortOption: sortOption ?? this.sortOption,
+      priceRange: priceRange ?? this.priceRange,
+      selectedCategories: selectedCategories ?? this.selectedCategories,
+      selectedAuthors: selectedAuthors ?? this.selectedAuthors,
+    );
+  }
+
+  Map<String, dynamic> toQueryParameters() {
+    final params = <String, dynamic>{};
+
+    if (searchQuery.isNotEmpty) {
+      params['search'] = searchQuery;
+    }
+
+    params['sort'] = sortOption.name;
+
+    if (priceRange != PriceRange.all) {
+      params['price_range'] = priceRange.name;
+    }
+
+    if (selectedCategories.isNotEmpty) {
+      params['categories'] = selectedCategories.join(',');
+    }
+
+    if (selectedAuthors.isNotEmpty) {
+      params['authors'] = selectedAuthors.join(',');
+    }
+
+    return params;
+  }
+
+  @override
+  List<Object?> get props => [
+    searchQuery,
+    sortOption,
+    priceRange,
+    selectedCategories,
+    selectedAuthors,
+  ];
+}
+
 //==============================================================================
 // DATA SOURCE
 //==============================================================================
 abstract class CourseRemoteDataSource {
-  Future<List<CourseEntity>> getCourses();
+  Future<List<CourseEntity>> getCourses({CourseFilter? filter});
   Future<CourseEntity> getCourseDetails(String id);
+  Future<Map<String, List<String>>> getFilterOptions();
 }
 
 class CourseRemoteDataSourceImpl implements CourseRemoteDataSource {
@@ -72,9 +170,12 @@ class CourseRemoteDataSourceImpl implements CourseRemoteDataSource {
   CourseRemoteDataSourceImpl({required this.apiClient});
 
   @override
-  Future<List<CourseEntity>> getCourses() async {
+  Future<List<CourseEntity>> getCourses({CourseFilter? filter}) async {
     try {
-      final response = await apiClient.get('/api/v1/get_courses.php');
+      final response = await apiClient.get(
+        '/api/v1/get_courses.php',
+        queryParameters: filter?.toQueryParameters() ?? {},
+      );
       return (response.data as List)
           .map((courseJson) => CourseEntity.fromJson(courseJson))
           .toList();
@@ -95,14 +196,28 @@ class CourseRemoteDataSourceImpl implements CourseRemoteDataSource {
       throw Exception('Impossible de récupérer les détails du cours : $e');
     }
   }
+
+  @override
+  Future<Map<String, List<String>>> getFilterOptions() async {
+    try {
+      final response = await apiClient.get('/api/v1/get_filter_options.php');
+      return {
+        'categories': List<String>.from(response.data['categories'] ?? []),
+        'authors': List<String>.from(response.data['authors'] ?? []),
+      };
+    } on DioException catch (e) {
+      throw Exception('Impossible de récupérer les options de filtrage : $e');
+    }
+  }
 }
 
 //==============================================================================
 // REPOSITORY
 //==============================================================================
 abstract class CourseRepository {
-  Future<List<CourseEntity>> getCourses();
+  Future<List<CourseEntity>> getCourses({CourseFilter? filter});
   Future<CourseEntity> getCourseDetails(String id);
+  Future<Map<String, List<String>>> getFilterOptions();
 }
 
 class CourseRepositoryImpl implements CourseRepository {
@@ -110,11 +225,16 @@ class CourseRepositoryImpl implements CourseRepository {
   CourseRepositoryImpl({required this.remoteDataSource});
 
   @override
-  Future<List<CourseEntity>> getCourses() => remoteDataSource.getCourses();
+  Future<List<CourseEntity>> getCourses({CourseFilter? filter}) =>
+      remoteDataSource.getCourses(filter: filter);
 
   @override
   Future<CourseEntity> getCourseDetails(String id) =>
       remoteDataSource.getCourseDetails(id);
+
+  @override
+  Future<Map<String, List<String>>> getFilterOptions() =>
+      remoteDataSource.getFilterOptions();
 }
 
 //==============================================================================
@@ -123,7 +243,8 @@ class CourseRepositoryImpl implements CourseRepository {
 class GetCourses {
   final CourseRepository repository;
   GetCourses(this.repository);
-  Future<List<CourseEntity>> call() => repository.getCourses();
+  Future<List<CourseEntity>> call({CourseFilter? filter}) =>
+      repository.getCourses(filter: filter);
 }
 
 class GetCourseDetails {
@@ -132,16 +253,64 @@ class GetCourseDetails {
   Future<CourseEntity> call(String id) => repository.getCourseDetails(id);
 }
 
+class GetFilterOptions {
+  final CourseRepository repository;
+  GetFilterOptions(this.repository);
+  Future<Map<String, List<String>>> call() => repository.getFilterOptions();
+}
+
 //==============================================================================
 // BLOC EVENTS
 //==============================================================================
 abstract class CourseEvent extends Equatable {
   const CourseEvent();
   @override
-  List<Object> get props => [];
+  List<Object?> get props => [];
 }
 
-class FetchCourses extends CourseEvent {}
+class FetchCourses extends CourseEvent {
+  final CourseFilter? filter;
+  const FetchCourses({this.filter});
+  @override
+  List<Object?> get props => [filter];
+}
+
+class UpdateSearchQuery extends CourseEvent {
+  final String query;
+  const UpdateSearchQuery(this.query);
+  @override
+  List<Object> get props => [query];
+}
+
+class UpdateSortOption extends CourseEvent {
+  final SortOption sortOption;
+  const UpdateSortOption(this.sortOption);
+  @override
+  List<Object> get props => [sortOption];
+}
+
+class UpdatePriceRange extends CourseEvent {
+  final PriceRange priceRange;
+  const UpdatePriceRange(this.priceRange);
+  @override
+  List<Object> get props => [priceRange];
+}
+
+class ToggleCategory extends CourseEvent {
+  final String category;
+  const ToggleCategory(this.category);
+  @override
+  List<Object> get props => [category];
+}
+
+class ToggleAuthor extends CourseEvent {
+  final String author;
+  const ToggleAuthor(this.author);
+  @override
+  List<Object> get props => [author];
+}
+
+class ClearFilters extends CourseEvent {}
 
 class FetchCourseDetails extends CourseEvent {
   final String courseId;
@@ -149,6 +318,8 @@ class FetchCourseDetails extends CourseEvent {
   @override
   List<Object> get props => [courseId];
 }
+
+class LoadFilterOptions extends CourseEvent {}
 
 //==============================================================================
 // BLOC STATES
@@ -161,13 +332,26 @@ abstract class CourseState extends Equatable {
 
 class CourseInitial extends CourseState {}
 
-class CourseLoading extends CourseState {}
+class CourseLoading extends CourseState {
+  final bool isLoadingMore;
+  const CourseLoading({this.isLoadingMore = false});
+  @override
+  List<Object> get props => [isLoadingMore];
+}
 
 class CourseListLoaded extends CourseState {
   final List<CourseEntity> courses;
-  const CourseListLoaded(this.courses);
+  final CourseFilter currentFilter;
+  final Map<String, List<String>> filterOptions;
+
+  const CourseListLoaded({
+    required this.courses,
+    required this.currentFilter,
+    this.filterOptions = const {},
+  });
+
   @override
-  List<Object> get props => [courses];
+  List<Object> get props => [courses, currentFilter, filterOptions];
 }
 
 class CourseDetailLoaded extends CourseState {
@@ -185,13 +369,25 @@ class CourseError extends CourseState {
 }
 
 //==============================================================================
-// BLOCS (séparés)
+// BLOCS
 //==============================================================================
-class CourseBloc extends Bloc<FetchCourses, CourseState> {
+class CourseBloc extends Bloc<CourseEvent, CourseState> {
   final GetCourses getCourses;
+  final GetFilterOptions getFilterOptions;
 
-  CourseBloc({required this.getCourses}) : super(CourseInitial()) {
+  CourseFilter _currentFilter = const CourseFilter();
+  Map<String, List<String>> _filterOptions = {};
+
+  CourseBloc({required this.getCourses, required this.getFilterOptions})
+    : super(CourseInitial()) {
     on<FetchCourses>(_onFetchCourses);
+    on<UpdateSearchQuery>(_onUpdateSearchQuery);
+    on<UpdateSortOption>(_onUpdateSortOption);
+    on<UpdatePriceRange>(_onUpdatePriceRange);
+    on<ToggleCategory>(_onToggleCategory);
+    on<ToggleAuthor>(_onToggleAuthor);
+    on<ClearFilters>(_onClearFilters);
+    on<LoadFilterOptions>(_onLoadFilterOptions);
   }
 
   Future<void> _onFetchCourses(
@@ -200,10 +396,94 @@ class CourseBloc extends Bloc<FetchCourses, CourseState> {
   ) async {
     emit(CourseLoading());
     try {
-      final courses = await getCourses();
-      emit(CourseListLoaded(courses));
+      final filter = event.filter ?? _currentFilter;
+      final courses = await getCourses(filter: filter);
+      _currentFilter = filter;
+      emit(
+        CourseListLoaded(
+          courses: courses,
+          currentFilter: _currentFilter,
+          filterOptions: _filterOptions,
+        ),
+      );
     } catch (e) {
       emit(CourseError('Erreur de chargement des cours: ${e.toString()}'));
+    }
+  }
+
+  Future<void> _onUpdateSearchQuery(
+    UpdateSearchQuery event,
+    Emitter<CourseState> emit,
+  ) async {
+    _currentFilter = _currentFilter.copyWith(searchQuery: event.query);
+    add(FetchCourses(filter: _currentFilter));
+  }
+
+  Future<void> _onUpdateSortOption(
+    UpdateSortOption event,
+    Emitter<CourseState> emit,
+  ) async {
+    _currentFilter = _currentFilter.copyWith(sortOption: event.sortOption);
+    add(FetchCourses(filter: _currentFilter));
+  }
+
+  Future<void> _onUpdatePriceRange(
+    UpdatePriceRange event,
+    Emitter<CourseState> emit,
+  ) async {
+    _currentFilter = _currentFilter.copyWith(priceRange: event.priceRange);
+    add(FetchCourses(filter: _currentFilter));
+  }
+
+  Future<void> _onToggleCategory(
+    ToggleCategory event,
+    Emitter<CourseState> emit,
+  ) async {
+    final categories = List<String>.from(_currentFilter.selectedCategories);
+    if (categories.contains(event.category)) {
+      categories.remove(event.category);
+    } else {
+      categories.add(event.category);
+    }
+    _currentFilter = _currentFilter.copyWith(selectedCategories: categories);
+    add(FetchCourses(filter: _currentFilter));
+  }
+
+  Future<void> _onToggleAuthor(
+    ToggleAuthor event,
+    Emitter<CourseState> emit,
+  ) async {
+    final authors = List<String>.from(_currentFilter.selectedAuthors);
+    if (authors.contains(event.author)) {
+      authors.remove(event.author);
+    } else {
+      authors.add(event.author);
+    }
+    _currentFilter = _currentFilter.copyWith(selectedAuthors: authors);
+    add(FetchCourses(filter: _currentFilter));
+  }
+
+  Future<void> _onClearFilters(
+    ClearFilters event,
+    Emitter<CourseState> emit,
+  ) async {
+    _currentFilter = const CourseFilter();
+    add(FetchCourses(filter: _currentFilter));
+  }
+
+  Future<void> _onLoadFilterOptions(
+    LoadFilterOptions event,
+    Emitter<CourseState> emit,
+  ) async {
+    try {
+      _filterOptions = await getFilterOptions();
+      if (state is CourseListLoaded) {
+        emit(
+          (state as CourseListLoaded).copyWith(filterOptions: _filterOptions),
+        );
+      }
+    } catch (e) {
+      // Log error but don't crash
     }
   }
 }
@@ -226,5 +506,20 @@ class CourseDetailBloc extends Bloc<FetchCourseDetails, CourseState> {
     } catch (e) {
       emit(CourseError('Erreur de chargement du détail: ${e.toString()}'));
     }
+  }
+}
+
+// Extension pour copier CourseListLoaded
+extension CourseListLoadedCopyWith on CourseListLoaded {
+  CourseListLoaded copyWith({
+    List<CourseEntity>? courses,
+    CourseFilter? currentFilter,
+    Map<String, List<String>>? filterOptions,
+  }) {
+    return CourseListLoaded(
+      courses: courses ?? this.courses,
+      currentFilter: currentFilter ?? this.currentFilter,
+      filterOptions: filterOptions ?? this.filterOptions,
+    );
   }
 }
