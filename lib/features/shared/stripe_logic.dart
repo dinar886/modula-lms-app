@@ -1,9 +1,11 @@
 // lib/features/shared/stripe_logic.dart
-import 'package:dio/dio.dart'; // NOUVEL IMPORT
+import 'package:dio/dio.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:modula_lms/core/api/api_client.dart';
+// Import pour url_launcher
 import 'package:url_launcher/url_launcher.dart';
+// On garde l'import de flutter_stripe pour les autres fonctionnalités
 import 'package:flutter_stripe/flutter_stripe.dart';
 
 // --- ENTITY ---
@@ -104,7 +106,7 @@ class StripeBloc extends Bloc<StripeEvent, StripeState> {
       final uri = Uri.parse(url);
 
       if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, webOnlyWindowName: '_self');
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
         throw Exception("Impossible d'ouvrir le lien de configuration.");
       }
@@ -129,9 +131,6 @@ class StripeBloc extends Bloc<StripeEvent, StripeState> {
       final status = StripeAccountStatus.fromJson(response.data);
       emit(StripeStatusLoaded(status));
     } on DioException catch (e) {
-      // *** CORRECTION APPLIQUÉE ICI ***
-      // Si l'erreur est 404, cela signifie que le formateur n'a pas encore de compte.
-      // Ce n'est pas une erreur fatale, on affiche simplement l'état initial.
       if (e.response?.statusCode == 404) {
         emit(
           const StripeStatusLoaded(
@@ -139,11 +138,9 @@ class StripeBloc extends Bloc<StripeEvent, StripeState> {
           ),
         );
       } else {
-        // Pour toute autre erreur de Dio, on l'affiche.
         emit(StripeError(e.toString()));
       }
     } catch (e) {
-      // Pour les autres types d'erreurs.
       emit(StripeError(e.toString()));
     }
   }
@@ -154,23 +151,38 @@ class StripeBloc extends Bloc<StripeEvent, StripeState> {
   ) async {
     emit(StripeCheckoutInProgress());
     try {
+      // 1. Appeler votre backend pour créer la session de paiement
       final response = await apiClient.post(
         '/api/v1/create_checkout_session.php',
         data: {'course_id': event.courseId, 'user_id': event.userId},
       );
-      final sessionId = response.data['id'];
-      final checkoutUrl = 'https://checkout.stripe.com/pay/$sessionId';
-      final uri = Uri.parse(checkoutUrl);
 
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        throw Exception("Impossible d'ouvrir la page de paiement.");
+      // 2. Récupérer l'URL complète retournée par le backend
+      final checkoutUrl = response.data['url'];
+      if (checkoutUrl == null) {
+        throw Exception('URL de paiement non trouvée dans la réponse.');
       }
 
+      final uri = Uri.parse(checkoutUrl);
+
+      // 3. Lancer l'URL dans une vue web intégrée (in-app)
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(
+          uri,
+          mode: LaunchMode.inAppWebView, // Ouvre dans l'app
+        );
+      } else {
+        throw Exception('Impossible de lancer l\'URL : $checkoutUrl');
+      }
+
+      // Une fois que l'utilisateur a fini et revient à l'app, on réinitialise l'état.
+      // La confirmation de l'achat est gérée par le webhook Stripe sur votre serveur.
       emit(StripeInitial());
     } catch (e) {
-      emit(StripeError("Erreur lors du paiement : ${e.toString()}"));
+      emit(
+        StripeError("Erreur lors du lancement du paiement : ${e.toString()}"),
+      );
+      // On remet l'état initial pour permettre une nouvelle tentative
       emit(StripeInitial());
     }
   }

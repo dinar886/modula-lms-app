@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Hôte : vd9wgs.myd.infomaniak.com
--- Généré le :  mar. 08 juil. 2025 à 07:29
+-- Généré le :  jeu. 10 juil. 2025 à 19:31
 -- Version du serveur :  10.6.18-MariaDB-deb11-log
 -- Version de PHP :  7.4.33
 
@@ -35,16 +35,19 @@ CREATE TABLE `courses` (
   `description` text DEFAULT NULL,
   `image_url` varchar(255) NOT NULL,
   `price` decimal(10,2) NOT NULL,
-  `color` varchar(7) DEFAULT '#005A9C'
+  `color` varchar(7) DEFAULT '#005A9C',
+  `stripe_product_id` varchar(255) DEFAULT NULL COMMENT 'ID du produit sur Stripe',
+  `stripe_price_id` varchar(255) DEFAULT NULL COMMENT 'ID du prix sur Stripe'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
 --
 -- Déchargement des données de la table `courses`
 --
 
-INSERT INTO `courses` (`id`, `title`, `author`, `description`, `image_url`, `price`, `color`) VALUES
-(11, 'Cours Arabe', 'a', 'ii', 'https://modula-lms.com/uploads/courses/course_686c2a90c82241.78323660.jpg', '25.00', '#F32124'),
-(12, 'zz', 'a', 'zhh', 'https://modula-lms.com/uploads/courses/course_686c2aa24e2ec6.53784212.jpg', '25.00', '#005A9C');
+INSERT INTO `courses` (`id`, `title`, `author`, `description`, `image_url`, `price`, `color`, `stripe_product_id`, `stripe_price_id`) VALUES
+(11, 'Cours Arabe', 'a', 'ii', 'https://modula-lms.com/uploads/courses/course_686c2a90c82241.78323660.jpg', '25.00', '#F32124', NULL, NULL),
+(12, 'zz', 'a', 'zhh', 'https://modula-lms.com/uploads/courses/course_686c2aa24e2ec6.53784212.jpg', '25.00', '#005A9C', NULL, NULL),
+(13, 'ca marche', 'a', 'ou pas', 'https://placehold.co/600x400/FF00BD/FFFFFF/png?text=ca+marche', '22.00', '#FF00BD', 'prod_SeNmF1TTcefj5c', 'price_1Rj516Q3IcvreDHMTnFpC45M');
 
 --
 -- Index pour les tables déchargées
@@ -64,7 +67,7 @@ ALTER TABLE `courses`
 -- AUTO_INCREMENT pour la table `courses`
 --
 ALTER TABLE `courses`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

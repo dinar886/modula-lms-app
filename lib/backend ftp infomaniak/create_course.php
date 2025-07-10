@@ -7,9 +7,15 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST");
 header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
 
+// --- INCLUSIONS ---
 require_once 'config.php';
+// Inclusion de la librairie Stripe
+require_once __DIR__ . '/vendor/autoload.php';
 
-// Connexion à la base de données
+// Initialisation du client Stripe avec la clé secrète de votre config
+\Stripe\Stripe::setApiKey($stripeSecretKey);
+
+// --- CONNEXION BDD ---
 $conn = new mysqli($servername, $username, $password, $dbname);
 if ($conn->connect_error) {
     http_response_code(500);
@@ -18,25 +24,24 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8");
 
-// On lit les données depuis `$_POST` car on utilise `multipart/form-data`.
+// --- TRAITEMENT DE LA REQUÊTE ---
 if (
     !empty($_POST['title']) &&
     isset($_POST['description']) &&
     isset($_POST['price']) &&
     !empty($_POST['instructor_id'])
 ) {
-    // On commence une transaction pour garantir la cohérence des données.
     $conn->begin_transaction();
 
     try {
-        // Sécurisation des données
+        // --- DONNÉES DU COURS ---
         $title = $conn->real_escape_string($_POST['title']);
         $description = $conn->real_escape_string($_POST['description']);
         $price = (float)$_POST['price'];
         $instructor_id = (int)$_POST['instructor_id'];
         $color = !empty($_POST['color']) ? $conn->real_escape_string($_POST['color']) : '#005A9C';
 
-        // Récupération du nom de l'auteur
+        // --- GESTION DE L'IMAGE ---
         $author_name = '';
         $user_sql = "SELECT name FROM users WHERE id = ?";
         $user_stmt = $conn->prepare($user_sql);
@@ -53,14 +58,9 @@ if (
         }
 
         $image_url = '';
-
-        // **CORRECTION : Gestion de l'upload de l'image**
-        // On vérifie maintenant avec la clé 'imageFile' envoyée par Flutter.
         if (isset($_FILES['imageFile']) && $_FILES['imageFile']['error'] == UPLOAD_ERR_OK) {
-            // Le chemin de destination est maintenant à la racine du site, pour un accès plus facile.
             $upload_dir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/courses/';
             if (!is_dir($upload_dir)) {
-                // On crée le dossier s'il n'existe pas.
                 mkdir($upload_dir, 0755, true);
             }
             $file_info = pathinfo($_FILES['imageFile']['name']);
@@ -69,22 +69,39 @@ if (
             $target_file = $upload_dir . $unique_filename;
 
             if (move_uploaded_file($_FILES['imageFile']['tmp_name'], $target_file)) {
-                // On construit l'URL complète et publique de l'image.
                 $image_url = "https://modula-lms.com/uploads/courses/" . $unique_filename;
             } else {
                 throw new Exception("Erreur lors du déplacement du fichier uploadé.");
             }
         } else {
-            // Si aucune image n'est uploadée, on crée une image placeholder.
             $encoded_title = urlencode($title);
             $hex_color = ltrim($color, '#');
             $image_url = "https://placehold.co/600x400/{$hex_color}/FFFFFF/png?text={$encoded_title}";
         }
 
-        // On insère le cours avec la bonne URL d'image et la couleur.
-        $sql = "INSERT INTO courses (title, description, price, image_url, color, author) VALUES (?, ?, ?, ?, ?, ?)";
+        // --- CRÉATION DU PRODUIT ET DU PRIX SUR STRIPE ---
+        // 1. On crée le produit sur Stripe
+        $stripe_product = \Stripe\Product::create([
+            'name' => $title,
+            'description' => $description,
+            'images' => [$image_url]
+        ]);
+        $stripe_product_id = $stripe_product->id;
+
+        // 2. On crée le prix associé à ce produit
+        $stripe_price = \Stripe\Price::create([
+            'unit_amount' => (int)($price * 100), // Le prix en centimes
+            'currency' => 'eur',
+            'product' => $stripe_product_id,
+        ]);
+        $stripe_price_id = $stripe_price->id;
+
+
+        // --- INSERTION DANS LA BASE DE DONNÉES ---
+        // On insère le cours avec les ID Stripe
+        $sql = "INSERT INTO courses (title, description, price, image_url, color, author, stripe_product_id, stripe_price_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("ssdsss", $title, $description, $price, $image_url, $color, $author_name);
+        $stmt->bind_param("ssdsssss", $title, $description, $price, $image_url, $color, $author_name, $stripe_product_id, $stripe_price_id);
         $stmt->execute();
         $course_id = $conn->insert_id;
         $stmt->close();
@@ -96,7 +113,6 @@ if (
         $link_stmt->execute();
         $link_stmt->close();
         
-        // On valide la transaction.
         $conn->commit();
         
         http_response_code(201);

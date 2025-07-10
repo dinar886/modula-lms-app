@@ -1,88 +1,80 @@
 <?php
 // Fichier : /api/v1/edit_course.php
 
-// Headers pour autoriser l'accès à l'API et définir le type de contenu
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST");
 header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
 
-// Inclusion du fichier de configuration de la base de données
+// --- INCLUSIONS ---
 require_once 'config.php';
+require_once __DIR__ . '/vendor/autoload.php';
 
-// Établissement de la connexion à la base de données
+// Initialisation Stripe
+\Stripe\Stripe::setApiKey($stripeSecretKey);
+
+// --- CONNEXION BDD ---
 $conn = new mysqli($servername, $username, $password, $dbname);
 if ($conn->connect_error) {
-    http_response_code(500); // Erreur serveur
+    http_response_code(500);
     echo json_encode(["message" => "Erreur de connexion à la base de données: " . $conn->connect_error]);
     exit();
 }
-// Forcer l'encodage en UTF-8 pour la communication avec la base de données
 $conn->set_charset("utf8");
 
-// Vérification que les données nécessaires ont été envoyées via la méthode POST
+// --- TRAITEMENT ---
 if (
     !empty($_POST['course_id']) &&
     !empty($_POST['title']) &&
-    isset($_POST['description']) && // La description peut être vide, mais doit être définie
+    isset($_POST['description']) &&
     isset($_POST['price'])
 ) {
-    // Nettoyage et sécurisation des données reçues
     $course_id = (int)$_POST['course_id'];
     $title = $conn->real_escape_string($_POST['title']);
     $description = $conn->real_escape_string($_POST['description']);
-    $price = (float)$_POST['price'];
+    $new_price = (float)$_POST['price'];
 
-    // Étape 1 : Récupérer les informations actuelles du cours (image et couleur)
-    $stmt_select = $conn->prepare("SELECT image_url, color FROM courses WHERE id = ?");
+    // Étape 1 : Récupérer les infos actuelles du cours (image, couleur, prix, IDs Stripe)
+    $stmt_select = $conn->prepare("SELECT image_url, color, price, stripe_product_id, stripe_price_id FROM courses WHERE id = ?");
     $stmt_select->bind_param("i", $course_id);
     $stmt_select->execute();
     $result = $stmt_select->get_result();
     $existing_course = $result->fetch_assoc();
     $stmt_select->close();
 
-    // Si le cours n'existe pas, on arrête le script
     if (!$existing_course) {
-        http_response_code(404); // Non trouvé
+        http_response_code(404);
         echo json_encode(["message" => "Cours non trouvé."]);
         exit();
     }
 
-    // On récupère l'URL de l'image et la couleur actuelles
     $image_url = $existing_course['image_url'];
     $color = !empty($_POST['color']) ? $conn->real_escape_string($_POST['color']) : $existing_course['color'];
-
+    $current_price = (float)$existing_course['price'];
+    $stripe_product_id = $existing_course['stripe_product_id'];
+    $stripe_price_id = $existing_course['stripe_price_id'];
+    
     $image_was_updated = false;
 
-    // **CORRECTION : Gestion de l'upload d'une NOUVELLE image**
-    // On vérifie maintenant avec la clé 'imageFile' envoyée par Flutter.
+    // --- Gestion de l'image (identique à create_course.php) ---
     if (isset($_FILES['imageFile']) && $_FILES['imageFile']['error'] == UPLOAD_ERR_OK) {
+        // ... (logique d'upload d'image inchangée)
         $upload_dir = $_SERVER['DOCUMENT_ROOT'] . '/uploads/courses/';
-        if (!is_dir($upload_dir)) {
-            mkdir($upload_dir, 0755, true);
-        }
-
-        // On génère un nom de fichier unique pour éviter les conflits
+        if (!is_dir($upload_dir)) { mkdir($upload_dir, 0755, true); }
         $file_info = pathinfo($_FILES['imageFile']['name']);
         $file_ext = strtolower($file_info['extension']);
         $unique_filename = uniqid('course_', true) . '.' . $file_ext;
         $target_file = $upload_dir . $unique_filename;
-
-        // On déplace le fichier temporaire vers son emplacement final
         if (move_uploaded_file($_FILES['imageFile']['tmp_name'], $target_file)) {
-            // Si le déplacement réussit, on met à jour l'URL de l'image
             $image_url = "https://modula-lms.com/uploads/courses/" . $unique_filename;
             $image_was_updated = true;
         } else {
-            http_response_code(500); // Erreur serveur
+            http_response_code(500);
             echo json_encode(["message" => "Erreur lors du déplacement du fichier uploadé."]);
             exit();
         }
     }
-
-    // Étape 3 : Si aucune nouvelle image n'a été uploadée, on gère le placeholder
     if (!$image_was_updated) {
-        // On vérifie si l'image actuelle est un placeholder ou si elle est vide
         if (empty($image_url) || strpos($image_url, 'placehold.co') !== false) {
              $encoded_title = urlencode($title);
              $hex_color = ltrim($color, '#');
@@ -90,38 +82,53 @@ if (
         }
     }
 
-    // Étape 4 : Mise à jour des informations dans la base de données
-    $sql = "UPDATE courses SET title = ?, description = ?, price = ?, image_url = ?, color = ? WHERE id = ?";
-    $stmt = $conn->prepare($sql);
-    if ($stmt === false) {
-        http_response_code(500);
-        echo json_encode(["message" => "Erreur de préparation de la requête: " . $conn->error]);
-        exit();
-    }
-    
-    // On lie les variables à la requête préparée
-    $stmt->bind_param("ssdssi", $title, $description, $price, $image_url, $color, $course_id);
+    // --- Synchronisation avec Stripe ---
+    // Mettre à jour le produit sur Stripe
+    if ($stripe_product_id) {
+        \Stripe\Product::update($stripe_product_id, [
+            'name' => $title,
+            'description' => $description,
+            'images' => [$image_url],
+        ]);
 
-    // On exécute la requête
+        // Si le prix a changé, archiver l'ancien et en créer un nouveau
+        if ($new_price != $current_price) {
+            // Archiver l'ancien prix
+            if ($stripe_price_id) {
+                \Stripe\Price::update($stripe_price_id, ['active' => false]);
+            }
+            // Créer le nouveau prix
+            $new_stripe_price = \Stripe\Price::create([
+                'unit_amount' => (int)($new_price * 100),
+                'currency' => 'eur',
+                'product' => $stripe_product_id,
+            ]);
+            $stripe_price_id = $new_stripe_price->id;
+        }
+    }
+
+
+    // --- Mise à jour de la base de données ---
+    $sql = "UPDATE courses SET title = ?, description = ?, price = ?, image_url = ?, color = ?, stripe_price_id = ? WHERE id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("ssdsssi", $title, $description, $new_price, $image_url, $color, $stripe_price_id, $course_id);
+
     if ($stmt->execute()) {
-        http_response_code(200); // Succès
+        http_response_code(200);
         echo json_encode([
             "message" => "Cours mis à jour avec succès.",
-            // On renvoie la nouvelle URL de l'image pour que l'app se mette à jour sans recharger
             "new_image_url" => $image_url
         ]);
     } else {
-        http_response_code(500); // Erreur serveur
+        http_response_code(500);
         echo json_encode(["message" => "Erreur lors de la mise à jour du cours: " . $stmt->error]);
     }
     $stmt->close();
 
 } else {
-    // Si les données POST sont incomplètes
-    http_response_code(400); // Mauvaise requête
+    http_response_code(400);
     echo json_encode(["message" => "Données incomplètes.", "received" => $_POST, "files" => $_FILES]);
 }
 
-// On ferme la connexion à la base de données
 $conn->close();
 ?>
