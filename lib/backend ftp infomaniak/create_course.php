@@ -22,7 +22,8 @@ if ($conn->connect_error) {
     echo json_encode(["message" => "Erreur de connexion à la base de données: " . $conn->connect_error]);
     exit();
 }
-$conn->set_charset("utf8");
+// --- CORRECTION : Utilisation de utf8mb4 ---
+$conn->set_charset("utf8mb4");
 
 // --- TRAITEMENT DE LA REQUÊTE ---
 if (

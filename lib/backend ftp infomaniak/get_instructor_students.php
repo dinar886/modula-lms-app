@@ -17,7 +17,8 @@ if (!isset($_GET['instructor_id']) || empty($_GET['instructor_id'])) {
 $instructor_id = $_GET['instructor_id'];
 
 $conn = new mysqli($servername, $username, $password, $dbname);
-$conn->set_charset("utf8");
+// --- CORRECTION : Utilisation de utf8mb4 ---
+$conn->set_charset("utf8mb4");
 
 if ($conn->connect_error) {
     http_response_code(500);

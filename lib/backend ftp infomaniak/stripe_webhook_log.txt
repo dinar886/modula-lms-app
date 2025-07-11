@@ -1,0 +1,1 @@
+[11-Jul-2025 02:22:44 Europe/Zurich] Webhook Error: Invalid signature.

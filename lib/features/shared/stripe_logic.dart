@@ -92,12 +92,15 @@ class StripeBloc extends Bloc<StripeEvent, StripeState> {
     on<InitiateCheckout>(_onInitiateCheckout);
   }
 
+  /// Gère la création du compte Stripe Connect et l'ouverture du lien d'onboarding.
   Future<void> _onCreateStripeConnectAccount(
     CreateStripeConnectAccount event,
     Emitter<StripeState> emit,
   ) async {
+    // Émet un état de chargement pour l'interface.
     emit(StripeLoading());
     try {
+      // Appel à votre backend pour créer le compte et obtenir l'URL d'onboarding.
       final response = await apiClient.post(
         '/api/v1/create_stripe_connect_account.php',
         data: {'user_id': event.userId, 'email': event.email},
@@ -105,32 +108,44 @@ class StripeBloc extends Bloc<StripeEvent, StripeState> {
       final url = response.data['onboarding_url'];
       final uri = Uri.parse(url);
 
+      // Vérifie si l'URL peut être lancée.
       if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        // *** MODIFICATION APPLIQUÉE ICI ***
+        // On change le mode de `LaunchMode.externalApplication` à `LaunchMode.inAppWebView`.
+        // Cela va maintenant ouvrir le lien dans une vue web à l'intérieur de l'application
+        // au lieu d'ouvrir le navigateur externe du téléphone.
+        await launchUrl(uri, mode: LaunchMode.inAppWebView);
       } else {
+        // Si l'URL ne peut pas être ouverte, on lève une exception.
         throw Exception("Impossible d'ouvrir le lien de configuration.");
       }
+      // Émet un état de succès avec l'URL pour une éventuelle utilisation future.
       emit(StripeAccountLinkCreated(url));
     } catch (e) {
+      // En cas d'erreur, on émet un état d'erreur avec un message.
       emit(
         StripeError("Erreur lors de la création du compte : ${e.toString()}"),
       );
     }
   }
 
+  /// Récupère le statut du compte Stripe (vérifié, paiements activés, etc.).
   Future<void> _onFetchStripeAccountStatus(
     FetchStripeAccountStatus event,
     Emitter<StripeState> emit,
   ) async {
     emit(StripeLoading());
     try {
+      // Appel à votre API pour lire le statut depuis votre base de données.
       final response = await apiClient.get(
         '/api/v1/get_stripe_account_status.php',
         queryParameters: {'user_id': event.userId},
       );
+      // On convertit la réponse JSON en objet `StripeAccountStatus`.
       final status = StripeAccountStatus.fromJson(response.data);
       emit(StripeStatusLoaded(status));
     } on DioException catch (e) {
+      // Cas spécifique où l'utilisateur n'a pas encore de compte (erreur 404).
       if (e.response?.statusCode == 404) {
         emit(
           const StripeStatusLoaded(
@@ -145,19 +160,20 @@ class StripeBloc extends Bloc<StripeEvent, StripeState> {
     }
   }
 
+  /// Lance le processus de paiement Stripe Checkout pour l'achat d'un cours.
   Future<void> _onInitiateCheckout(
     InitiateCheckout event,
     Emitter<StripeState> emit,
   ) async {
     emit(StripeCheckoutInProgress());
     try {
-      // 1. Appeler votre backend pour créer la session de paiement
+      // 1. Appeler votre backend pour créer la session de paiement.
       final response = await apiClient.post(
         '/api/v1/create_checkout_session.php',
         data: {'course_id': event.courseId, 'user_id': event.userId},
       );
 
-      // 2. Récupérer l'URL complète retournée par le backend
+      // 2. Récupérer l'URL complète retournée par le backend.
       final checkoutUrl = response.data['url'];
       if (checkoutUrl == null) {
         throw Exception('URL de paiement non trouvée dans la réponse.');
@@ -165,11 +181,11 @@ class StripeBloc extends Bloc<StripeEvent, StripeState> {
 
       final uri = Uri.parse(checkoutUrl);
 
-      // 3. Lancer l'URL dans une vue web intégrée (in-app)
+      // 3. Lancer l'URL dans une vue web intégrée (in-app).
       if (await canLaunchUrl(uri)) {
         await launchUrl(
           uri,
-          mode: LaunchMode.inAppWebView, // Ouvre dans l'app
+          mode: LaunchMode.inAppWebView, // Ouvre dans l'app.
         );
       } else {
         throw Exception('Impossible de lancer l\'URL : $checkoutUrl');
@@ -182,7 +198,7 @@ class StripeBloc extends Bloc<StripeEvent, StripeState> {
       emit(
         StripeError("Erreur lors du lancement du paiement : ${e.toString()}"),
       );
-      // On remet l'état initial pour permettre une nouvelle tentative
+      // On remet l'état initial pour permettre une nouvelle tentative.
       emit(StripeInitial());
     }
   }

@@ -59,7 +59,13 @@ class AppRouter {
             ),
             GoRoute(
               path: '/my-courses',
-              builder: (context, state) => const MyCoursesPage(),
+              builder: (context, state) {
+                // CORRECTION : On lit le paramètre `purchase_success` de l'URL.
+                final purchaseSuccess =
+                    state.uri.queryParameters['purchase_success'] == 'true';
+                // On passe ce paramètre à la page.
+                return MyCoursesPage(purchaseSuccess: purchaseSuccess);
+              },
             ),
             GoRoute(
               path: '/dashboard',

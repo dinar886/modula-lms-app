@@ -66,7 +66,8 @@ try {
             'quantity' => 1,
         ]],
         'mode' => 'payment',
-        'success_url' => 'https://modula-lms.com/my-courses?session_id={CHECKOUT_SESSION_ID}',
+        // CORRECTION : On ajoute un paramètre `purchase_success=true` à l'URL de succès.
+        'success_url' => 'https://modula-lms.com/my-courses?purchase_success=true&session_id={CHECKOUT_SESSION_ID}',
         'cancel_url' => 'https://modula-lms.com/marketplace?payment_cancelled=true',
         'payment_intent_data' => [
             'application_fee_amount' => $application_fee_amount,
@@ -80,7 +81,7 @@ try {
         ]
     ]);
 
-    // MODIFICATION : On renvoie l'URL de la session complète au lieu de l'ID
+    // On renvoie l'URL de la session complète au lieu de l'ID
     echo json_encode(['url' => $checkout_session->url]);
 
 } catch (Exception $e) {

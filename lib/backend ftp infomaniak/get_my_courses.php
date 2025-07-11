@@ -20,7 +20,9 @@ $user_id = $_GET['user_id'];
 $role = $_GET['role'];
 
 $conn = new mysqli($servername, $username, $password, $dbname);
-$conn->set_charset("utf8");
+
+// --- CORRECTION : Utilisation de utf8mb4 pour une meilleure compatibilité ---
+$conn->set_charset("utf8mb4");
 
 if ($conn->connect_error) {
     http_response_code(500);
@@ -36,7 +38,6 @@ if ($role === 'instructor') {
     // LOGIQUE POUR L'INSTRUCTEUR :
     // On fait une jointure (JOIN) entre la table `courses` et la table `user_courses`
     // pour récupérer les détails de tous les cours créés par cet instructeur.
-    // **CORRECTION : Utilisation de la table `user_courses` comme demandé.**
     $sql = "SELECT c.* FROM courses c
             JOIN user_courses uc ON c.id = uc.course_id
             WHERE uc.user_id = ?";
