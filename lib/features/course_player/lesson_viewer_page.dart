@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/1_auth/auth_feature.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // NOUVEL IMPORT
 import 'package:video_player/video_player.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 
@@ -23,20 +24,38 @@ class LessonViewerPage extends StatelessWidget {
     required this.courseId,
   });
 
-  // NOUVELLE MÉTHODE pour marquer la leçon comme terminée
+  /// Sauvegarde les informations de la leçon actuellement consultée dans le stockage local.
+  Future<void> _saveLastAccessedLesson(BuildContext context) async {
+    final lessonDetailState = context.read<LessonDetailBloc>().state;
+    if (lessonDetailState is LessonDetailLoaded) {
+      final lesson = lessonDetailState.lesson;
+      final prefs =
+          sl<
+            SharedPreferences
+          >(); // On récupère l'instance de SharedPreferences
+
+      // On sauvegarde toutes les informations nécessaires pour la carte "Reprendre".
+      await prefs.setString('last_lesson_id', lesson.id.toString());
+      await prefs.setString('last_lesson_title', lesson.title);
+      await prefs.setString('last_course_id', courseId);
+      // Pour le titre du cours, on va le chercher dans les arguments de la route parente si possible.
+      // C'est une simplification, idéalement, le nom du cours serait passé en extra.
+      // Pour cet exemple, nous allons le laisser vide et le gérer dans le dashboard.
+    }
+  }
+
+  /// Marque la leçon comme terminée si elle peut l'être par simple consultation.
   void _markLessonAsViewed(BuildContext context) {
     final lessonDetailState = context.read<LessonDetailBloc>().state;
     if (lessonDetailState is LessonDetailLoaded) {
       final lesson = lessonDetailState.lesson;
-      // On ne marque comme "vu" que si ce n'est pas un devoir et si ce n'est pas déjà fait.
       final isCompletableByView =
           lesson.lessonType != LessonType.devoir &&
           lesson.lessonType != LessonType.evaluation;
+
       if (isCompletableByView && !lesson.isCompleted) {
         final userId = context.read<AuthenticationBloc>().state.user.id;
-        // On utilise le CourseContentBloc, qui est accessible via le service locator
-        // ou pourrait être passé en paramètre si nécessaire. Pour l'instant, c'est la solution la plus simple.
-        sl<CourseContentBloc>().add(
+        context.read<CourseContentBloc>().add(
           MarkLessonAsCompleted(
             lessonId: lessonId,
             courseId: int.parse(courseId),
@@ -51,7 +70,6 @@ class LessonViewerPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final studentId = context.read<AuthenticationBloc>().state.user.id;
 
-    // Le BlocProvider pour le LessonDetailBloc gère l'état de la leçon.
     return BlocProvider(
       create: (context) =>
           sl<LessonDetailBloc>()
@@ -59,8 +77,10 @@ class LessonViewerPage extends StatelessWidget {
       child: Scaffold(
         body: BlocConsumer<LessonDetailBloc, LessonDetailState>(
           listener: (context, state) {
-            // Une fois la leçon chargée, on vérifie si on doit la marquer comme vue.
             if (state is LessonDetailLoaded) {
+              // Une fois la leçon chargée, on la sauvegarde comme "dernière consultée".
+              _saveLastAccessedLesson(context);
+              // Et on la marque comme "vue".
               _markLessonAsViewed(context);
             }
             if (state is LessonDetailSubmitSuccess) {
@@ -107,13 +127,11 @@ class LessonViewerPage extends StatelessWidget {
       slivers: [
         SliverAppBar(title: Text(lesson.title), pinned: true, floating: true),
 
-        // Si c'est un devoir, on affiche le widget de gestion du rendu.
         if (isAssignment)
           SliverToBoxAdapter(
             child: AssignmentViewWidget(lesson: lesson, courseId: courseId),
           ),
 
-        // Affiche l'énoncé de la leçon (les blocs de contenu).
         if (lesson.contentBlocks.isEmpty)
           const SliverFillRemaining(
             child: Center(child: Text("Cette activité n'a pas d'énoncé.")),
@@ -129,7 +147,6 @@ class LessonViewerPage extends StatelessWidget {
     );
   }
 
-  // Affiche le widget approprié en fonction du type de bloc.
   Widget _buildBlockWidget(
     BuildContext context,
     ContentBlockEntity block,
@@ -191,9 +208,9 @@ class LessonViewerPage extends StatelessWidget {
   }
 }
 
-// =======================================================================
-// WIDGET POUR LA VUE DEVOIR/ÉVALUATION (Logique de validation corrigée)
-// =======================================================================
+// Le reste du fichier (AssignmentViewWidget, SubmissionPlaceholderWidget, etc.) reste inchangé.
+// J'inclus tout le code pour que vous puissiez simplement copier-coller.
+
 class AssignmentViewWidget extends StatelessWidget {
   final LessonEntity lesson;
   final String courseId;
@@ -206,7 +223,6 @@ class AssignmentViewWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // On écoute l'état du LessonDetailBloc pour avoir les dernières informations.
     final lessonDetailState = context.watch<LessonDetailBloc>().state;
 
     if (lessonDetailState is! LessonDetailLoaded) {
@@ -216,9 +232,6 @@ class AssignmentViewWidget extends StatelessWidget {
     final submissionContent = lessonDetailState.submissionContent;
     final submission = lesson.submission;
 
-    // --- LOGIQUE DE VALIDATION CORRIGÉE ---
-
-    // 1. On identifie ce qui est requis pour ce devoir.
     final allQuizBlocks = lesson.contentBlocks
         .where((b) => b.blockType == ContentBlockType.quiz)
         .toList();
@@ -229,7 +242,6 @@ class AssignmentViewWidget extends StatelessWidget {
     final bool requiresQuiz = allQuizBlocks.isNotEmpty;
     final bool requiresFile = allPlaceholderBlocks.isNotEmpty;
 
-    // 2. On vérifie si les conditions sont remplies.
     final bool allQuizzesCompleted =
         requiresQuiz &&
         lessonDetailState.completedQuizIds.length >= allQuizBlocks.length;
@@ -238,20 +250,15 @@ class AssignmentViewWidget extends StatelessWidget {
         requiresFile &&
         submissionContent.any((b) => b.uploadStatus == UploadStatus.completed);
 
-    // 3. On détermine si le bouton "Rendre" doit être activé.
     bool isReadyToSubmit = false;
     if (requiresQuiz && requiresFile) {
-      // Cas 1: Quiz ET Fichier requis
       isReadyToSubmit = allQuizzesCompleted && allFilesUploaded;
     } else if (requiresQuiz && !requiresFile) {
-      // Cas 2: Uniquement Quiz requis
       isReadyToSubmit = allQuizzesCompleted;
     } else if (!requiresQuiz && requiresFile) {
-      // Cas 3: Uniquement Fichier requis
       isReadyToSubmit = allFilesUploaded;
     }
 
-    // On ne peut rendre le travail que s'il n'a pas déjà été soumis.
     final bool canSubmit = submission == null;
 
     return Card(
@@ -290,7 +297,6 @@ class AssignmentViewWidget extends StatelessWidget {
                   ? FilledButton.icon(
                       icon: const Icon(Icons.upload_file),
                       label: const Text('Confirmer et Rendre le Travail'),
-                      // Le bouton est activé seulement si `isReadyToSubmit` est vrai.
                       onPressed: isReadyToSubmit
                           ? () => _confirmSubmission(context)
                           : null,
@@ -392,7 +398,6 @@ class AssignmentViewWidget extends StatelessWidget {
   }
 }
 
-// Le reste du fichier (widgets d'affichage des blocs) est identique au précédent.
 class SubmissionPlaceholderWidget extends StatelessWidget {
   const SubmissionPlaceholderWidget({super.key});
 
@@ -674,9 +679,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
   }
 }
 
-// =======================================================================
-// WIDGET DU QUIZ (FORTEMENT MODIFIÉ)
-// =======================================================================
 class QuizBlockWidget extends StatelessWidget {
   final int quizId;
   final int lessonId;
@@ -692,7 +694,6 @@ class QuizBlockWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final studentId = context.read<AuthenticationBloc>().state.user.id;
-    // Chaque QuizBlockWidget a son propre BlocProvider pour gérer son état local.
     return BlocProvider(
       create: (context) => sl<QuizBloc>()
         ..add(
@@ -702,11 +703,8 @@ class QuizBlockWidget extends StatelessWidget {
             maxAttempts: maxAttempts,
           ),
         ),
-      // BlocListener pour communiquer avec le LessonDetailBloc parent.
       child: BlocListener<QuizBloc, QuizState>(
         listener: (context, state) {
-          // Si le quiz est terminé (résultat affiché ou tentatives épuisées),
-          // on notifie la page parente.
           final isQuizFinished =
               state.status == QuizStatus.showingResult ||
               (state.status == QuizStatus.loaded && !state.canAttemptQuiz);
@@ -772,7 +770,6 @@ class QuizBlockWidget extends StatelessWidget {
     );
   }
 
-  // --- Widget pour le formulaire du quiz (répondre aux questions) ---
   Widget _buildQuizForm(BuildContext context, QuizState state) {
     return Card(
       margin: const EdgeInsets.all(16.0),
@@ -827,7 +824,6 @@ class QuizBlockWidget extends StatelessWidget {
     );
   }
 
-  // NOUVEAU WIDGET : Pour afficher le bon type d'input par question
   Widget _buildQuestionInput(
     BuildContext context,
     QuestionEntity question,
@@ -836,14 +832,12 @@ class QuizBlockWidget extends StatelessWidget {
     if (question.questionType == QuestionType.fill_in_the_blank) {
       return _FillInTheBlankInput(question: question);
     }
-    // Par défaut, c'est un QCM
     return _McqInput(
       question: question,
       groupValue: state.userAnswers[question.id],
     );
   }
 
-  // --- Widget pour afficher les résultats détaillés du quiz ---
   Widget _buildQuizResult(BuildContext context, QuizState state) {
     final attempt = state.lastAttempt;
     if (attempt == null) {
@@ -920,7 +914,6 @@ class QuizBlockWidget extends StatelessWidget {
     );
   }
 
-  // NOUVEAU WIDGET : Pour afficher la correction d'une question
   Widget _buildQuestionResult(
     BuildContext context,
     QuestionEntity question,
@@ -935,7 +928,6 @@ class QuizBlockWidget extends StatelessWidget {
       );
     }
 
-    // Par défaut, QCM
     return _McqResult(
       question: question,
       selectedAnswerId: userAnswer as int?,
@@ -943,7 +935,6 @@ class QuizBlockWidget extends StatelessWidget {
     );
   }
 
-  // --- Widget pour le message "Tentatives épuisées" ---
   Widget _buildAttemptsExceeded(BuildContext context, QuizState state) {
     return Card(
       margin: const EdgeInsets.all(16.0),
@@ -993,9 +984,6 @@ class QuizBlockWidget extends StatelessWidget {
   }
 }
 
-// --- WIDGETS SPÉCIFIQUES POUR LES TYPES DE QUESTIONS ---
-
-// --- INPUTS ---
 class _McqInput extends StatelessWidget {
   final QuestionEntity question;
   final int? groupValue;
@@ -1069,8 +1057,6 @@ class _FillInTheBlankInput extends StatelessWidget {
     );
   }
 }
-
-// --- RESULTS ---
 
 class _McqResult extends StatelessWidget {
   final QuestionEntity question;
