@@ -208,9 +208,6 @@ class LessonViewerPage extends StatelessWidget {
   }
 }
 
-// Le reste du fichier (AssignmentViewWidget, SubmissionPlaceholderWidget, etc.) reste inchangé.
-// J'inclus tout le code pour que vous puissiez simplement copier-coller.
-
 class AssignmentViewWidget extends StatelessWidget {
   final LessonEntity lesson;
   final String courseId;

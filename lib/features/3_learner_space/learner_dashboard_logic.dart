@@ -3,9 +3,8 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:modula_lms/core/api/api_client.dart';
-import 'package:modula_lms/features/4_instructor_space/submissions_logic.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // NOUVEL IMPORT
+import 'package:shared_preferences/shared_preferences.dart';
 
 // --- ENTITÉS ---
 
@@ -27,11 +26,54 @@ class LastAccessedLessonEntity extends Equatable {
   List<Object> get props => [lessonId, lessonTitle, courseId, courseTitle];
 }
 
+/// NOUVELLE ENTITÉ : Représente un devoir à venir (non soumis).
+/// Contient les informations nécessaires pour l'affichage, notamment la date d'échéance.
+class UpcomingAssignmentEntity extends Equatable {
+  final int lessonId;
+  final String lessonTitle;
+  final LessonType lessonType;
+  final DateTime? dueDate;
+  final int courseId;
+  final String courseTitle;
+
+  const UpcomingAssignmentEntity({
+    required this.lessonId,
+    required this.lessonTitle,
+    required this.lessonType,
+    this.dueDate,
+    required this.courseId,
+    required this.courseTitle,
+  });
+
+  factory UpcomingAssignmentEntity.fromJson(Map<String, dynamic> json) {
+    return UpcomingAssignmentEntity(
+      lessonId: json['lesson_id'],
+      lessonTitle: json['lesson_title'],
+      lessonType: LessonEntity.lessonTypeFromString(json['lesson_type']),
+      dueDate: json['due_date'] != null
+          ? DateTime.parse(json['due_date'])
+          : null,
+      courseId: json['course_id'],
+      courseTitle: json['course_title'],
+    );
+  }
+
+  @override
+  List<Object?> get props => [
+    lessonId,
+    lessonTitle,
+    lessonType,
+    dueDate,
+    courseId,
+    courseTitle,
+  ];
+}
+
 /// Représente les données complètes du tableau de bord.
-/// MISE A JOUR: le champ recentGrades a été retiré.
+/// MISE A JOUR : Utilise maintenant la nouvelle entité pour les devoirs.
 class LearnerDashboardData extends Equatable {
   final LastAccessedLessonEntity? lastAccessedLesson;
-  final List<SubmissionSummaryEntity> upcomingAssignments;
+  final List<UpcomingAssignmentEntity> upcomingAssignments;
 
   const LearnerDashboardData({
     this.lastAccessedLesson,
@@ -84,7 +126,7 @@ class LearnerDashboardError extends LearnerDashboardState {
 class LearnerDashboardBloc
     extends Bloc<LearnerDashboardEvent, LearnerDashboardState> {
   final ApiClient apiClient;
-  final SharedPreferences sharedPreferences; // INJECTION DE DÉPENDANCE
+  final SharedPreferences sharedPreferences;
 
   LearnerDashboardBloc({
     required this.apiClient,
@@ -99,39 +141,24 @@ class LearnerDashboardBloc
   ) async {
     emit(LearnerDashboardLoading());
     try {
-      // 1. Récupérer la dernière leçon consultée depuis le stockage local.
+      // 1. Récupérer la dernière leçon consultée depuis le stockage local (inchangé).
       final lastLesson = _getLastAccessedLesson();
 
-      // 2. Récupérer tous les rendus de l'élève depuis l'API.
+      // 2. MISE À JOUR : Appeler le nouveau script pour récupérer les devoirs non rendus.
       final response = await apiClient.get(
-        '/api/v1/get_my_submissions.php',
+        '/api/v1/get_upcoming_assignments.php',
         queryParameters: {'student_id': event.studentId},
       );
-      final allSubmissions = (response.data as List)
-          .map((json) => SubmissionSummaryEntity.fromJson(json))
+
+      // On transforme la réponse en une liste d'entités `UpcomingAssignmentEntity`.
+      final upcomingAssignments = (response.data as List)
+          .map((json) => UpcomingAssignmentEntity.fromJson(json))
           .toList();
 
-      // 3. Filtrer pour obtenir les devoirs à venir.
-      // Un devoir est "à venir" s'il n'est pas encore noté et que c'est un devoir/contrôle.
-      final assignments = allSubmissions.where((s) {
-        final isAssignmentType =
-            s.lessonType == LessonType.devoir ||
-            s.lessonType == LessonType.evaluation;
-        return s.status != 'graded' && isAssignmentType;
-      }).toList();
-
-      // On trie par date d'échéance la plus proche.
-      // Note : la due_date doit être ajoutée à l'API get_my_submissions.php
-      // Pour l'instant, on trie par date de rendu.
-      assignments.sort((a, b) => a.submissionDate.compareTo(b.submissionDate));
-
-      // 4. MISE A JOUR : La logique pour les notes récentes a été supprimée.
-
-      // 5. Construire l'objet de données final.
+      // 3. Construire l'objet de données final avec les nouvelles données.
       final dashboardData = LearnerDashboardData(
         lastAccessedLesson: lastLesson,
-        // On prend les 5 premiers pour ne pas surcharger l'interface.
-        upcomingAssignments: assignments.take(5).toList(),
+        upcomingAssignments: upcomingAssignments,
       );
 
       emit(LearnerDashboardLoaded(dashboardData));
@@ -144,13 +171,12 @@ class LearnerDashboardBloc
     }
   }
 
-  /// Lit les informations de la dernière leçon depuis le SharedPreferences.
+  /// Lit les informations de la dernière leçon depuis le SharedPreferences (inchangé).
   LastAccessedLessonEntity? _getLastAccessedLesson() {
     final lessonId = sharedPreferences.getString('last_lesson_id');
     final lessonTitle = sharedPreferences.getString('last_lesson_title');
     final courseId = sharedPreferences.getString('last_course_id');
-    // Le titre du cours n'est pas sauvegardé, on peut l'améliorer plus tard.
-    const courseTitle = "Cours"; // Titre générique pour l'instant
+    const courseTitle = "Cours";
 
     if (lessonId != null && lessonTitle != null && courseId != null) {
       return LastAccessedLessonEntity(

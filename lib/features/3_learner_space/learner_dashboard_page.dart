@@ -3,13 +3,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/1_auth/auth_feature.dart';
 import 'package:modula_lms/features/3_learner_space/learner_dashboard_logic.dart';
-import 'package:modula_lms/features/4_instructor_space/submissions_logic.dart';
 
-class LearnerDashboardPage extends StatelessWidget {
+class LearnerDashboardPage extends StatefulWidget {
   const LearnerDashboardPage({super.key});
+
+  @override
+  State<LearnerDashboardPage> createState() => _LearnerDashboardPageState();
+}
+
+class _LearnerDashboardPageState extends State<LearnerDashboardPage> {
+  @override
+  void initState() {
+    super.initState();
+    // Initialiser le formatage des dates pour la locale française
+    initializeDateFormatting('fr_FR', null);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +32,12 @@ class LearnerDashboardPage extends StatelessWidget {
       create: (context) =>
           sl<LearnerDashboardBloc>()..add(FetchLearnerDashboardData(studentId)),
       child: Scaffold(
-        appBar: AppBar(title: const Text('Tableau de Bord')),
+        appBar: AppBar(
+          title: const Text('Tableau de Bord'),
+          backgroundColor: Colors.grey[50],
+          elevation: 0,
+        ),
+        backgroundColor: Colors.grey[50],
         // Le corps de la page utilise un BlocBuilder pour réagir aux états.
         body: BlocBuilder<LearnerDashboardBloc, LearnerDashboardState>(
           builder: (context, state) {
@@ -52,20 +69,20 @@ class LearnerDashboardPage extends StatelessWidget {
                     _buildSectionTitle(context, 'Prochains Devoirs'),
                     const SizedBox(height: 8),
                     if (data.upcomingAssignments.isEmpty)
-                      const Text(
-                        "Aucun devoir à rendre prochainement. Reposez-vous bien !",
+                      _buildEmptyStateCard(
+                        "Aucun devoir à rendre.",
+                        "Reposez-vous bien !",
+                        Icons.check_circle_outline,
                       )
                     else
-                      ...data.upcomingAssignments.map(
-                        (submission) =>
-                            _buildAssignmentCard(context, submission),
+                      _buildUpcomingAssignmentsSection(
+                        context,
+                        data.upcomingAssignments,
                       ),
 
                     const SizedBox(height: 24),
 
-                    // Section 3: MISE A JOUR - La section des dernières notes a été supprimée.
-
-                    // Section 4 : Cartes d'actions rapides (comme avant)
+                    // Section 3 : Cartes d'actions rapides
                     _buildActionsGrid(context),
                   ],
                 ),
@@ -143,28 +160,223 @@ class LearnerDashboardPage extends StatelessWidget {
     );
   }
 
-  /// Construit une carte pour un devoir à rendre.
-  Widget _buildAssignmentCard(
+  /// Construit la section des devoirs à venir (max 2)
+  Widget _buildUpcomingAssignmentsSection(
     BuildContext context,
-    SubmissionSummaryEntity submission,
+    List<UpcomingAssignmentEntity> assignments,
   ) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: const Icon(
-          Icons.assignment_late_outlined,
-          color: Colors.orange,
-        ),
-        title: Text(
-          submission.lessonTitle,
-          style: const TextStyle(fontWeight: FontWeight.w500),
-        ),
-        subtitle: Text(
-          'À rendre avant le ${DateFormat('dd/MM/yyyy HH:mm').format(submission.submissionDate)}',
-        ),
-        onTap: () => context.push(
-          '/lesson-viewer/${submission.lessonId}',
-          extra: submission.courseId.toString(),
+    // Limiter à 2 devoirs maximum
+    final displayedAssignments = assignments.take(2).toList();
+
+    return Column(
+      children: displayedAssignments
+          .map(
+            (assignment) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildModernAssignmentCard(context, assignment),
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  /// **NOUVEAU WIDGET MODERNE** : Carte de devoir redesignée
+  Widget _buildModernAssignmentCard(
+    BuildContext context,
+    UpcomingAssignmentEntity assignment,
+  ) {
+    final now = DateTime.now();
+    final theme = Theme.of(context);
+
+    // Calcul du temps restant et du statut
+    String timeLeftText;
+    String dateText;
+    Color statusColor;
+    IconData statusIcon;
+    Color cardBackgroundColor;
+
+    if (assignment.dueDate == null) {
+      timeLeftText = 'Sans limite';
+      dateText = 'Pas de date limite';
+      statusColor = Colors.blue.shade600;
+      statusIcon = Icons.all_inclusive;
+      cardBackgroundColor = Colors.blue.shade50;
+    } else {
+      final difference = assignment.dueDate!.difference(now);
+
+      // Formatage de la date - utiliser un format simple si la locale n'est pas disponible
+      try {
+        dateText = DateFormat(
+          'EEEE d MMMM à HH:mm',
+          'fr_FR',
+        ).format(assignment.dueDate!);
+      } catch (e) {
+        // Fallback sur un format simple si la locale n'est pas disponible
+        dateText = DateFormat('dd/MM/yyyy HH:mm').format(assignment.dueDate!);
+      }
+
+      if (difference.isNegative) {
+        // En retard
+        final daysLate = difference.inDays.abs();
+        timeLeftText = daysLate > 0
+            ? 'En retard de $daysLate jour${daysLate > 1 ? 's' : ''}'
+            : 'En retard';
+        statusColor = Colors.red.shade600;
+        statusIcon = Icons.error_outline;
+        cardBackgroundColor = Colors.red.shade50;
+      } else if (difference.inHours < 24) {
+        // Moins de 24h
+        if (difference.inHours < 1) {
+          timeLeftText =
+              '${difference.inMinutes} minute${difference.inMinutes > 1 ? 's' : ''}';
+        } else {
+          timeLeftText =
+              '${difference.inHours} heure${difference.inHours > 1 ? 's' : ''}';
+        }
+        statusColor = Colors.orange.shade700;
+        statusIcon = Icons.schedule;
+        cardBackgroundColor = Colors.orange.shade50;
+      } else if (difference.inDays <= 3) {
+        // Entre 1 et 3 jours
+        timeLeftText =
+            '${difference.inDays} jour${difference.inDays > 1 ? 's' : ''}';
+        statusColor = Colors.amber.shade700;
+        statusIcon = Icons.access_time;
+        cardBackgroundColor = Colors.amber.shade50;
+      } else {
+        // Plus de 3 jours
+        timeLeftText = '${difference.inDays} jours';
+        statusColor = Colors.green.shade600;
+        statusIcon = Icons.event_available;
+        cardBackgroundColor = Colors.green.shade50;
+      }
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: () => context.push(
+            '/lesson-viewer/${assignment.lessonId}',
+            extra: assignment.courseId.toString(),
+          ),
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // En-tête avec badge de statut
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: cardBackgroundColor,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(statusIcon, size: 16, color: statusColor),
+                          const SizedBox(width: 6),
+                          Text(
+                            timeLeftText,
+                            style: TextStyle(
+                              color: statusColor,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      Icons.arrow_forward_ios,
+                      size: 14,
+                      color: Colors.grey.shade400,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Titre de la leçon
+                Text(
+                  assignment.lessonTitle,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 8),
+
+                // Informations supplémentaires
+                Row(
+                  children: [
+                    Icon(
+                      Icons.school_outlined,
+                      size: 14,
+                      color: Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        assignment.courseTitle,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.calendar_today_outlined,
+                      size: 14,
+                      color: Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        dateText,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -177,6 +389,36 @@ class LearnerDashboardPage extends StatelessWidget {
       style: Theme.of(
         context,
       ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+    );
+  }
+
+  /// Affiche une carte quand une section est vide.
+  Widget _buildEmptyStateCard(String title, String subtitle, IconData icon) {
+    return Card(
+      elevation: 0,
+      color: Colors.grey[200],
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          children: [
+            Icon(icon, size: 32, color: Colors.grey[600]),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -237,10 +479,13 @@ class LearnerDashboardPage extends StatelessWidget {
           children: <Widget>[
             Icon(icon, size: 40.0, color: Theme.of(context).primaryColor),
             const SizedBox(height: 12.0),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.titleSmall,
-              textAlign: TextAlign.center,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.titleSmall,
+                textAlign: TextAlign.center,
+              ),
             ),
           ],
         ),
