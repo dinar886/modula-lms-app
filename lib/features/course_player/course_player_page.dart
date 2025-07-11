@@ -4,9 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
-import 'package:modula_lms/features/1_auth/auth_feature.dart'; // IMPORTANT : pour l'ID utilisateur
+import 'package:modula_lms/features/1_auth/auth_feature.dart';
 import 'package:modula_lms/features/2_marketplace/marketplace_logic.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class CoursePlayerPage extends StatefulWidget {
   final CourseEntity course;
@@ -23,6 +24,16 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
   final ScrollController _scrollController = ScrollController();
   double _scrollOffset = 0.0;
 
+  // --- NOUVELLES VARIABLES D'ÉTAT ---
+  /// ID de la section qui doit être initialement dépliée.
+  int? _initiallyExpandedSectionId;
+
+  /// Position de défilement (scroll) à restaurer au chargement.
+  double? _initialScrollOffset;
+
+  /// Un drapeau pour s'assurer que le scroll automatique n'est exécuté qu'une seule fois.
+  bool _hasAutoScrolled = false;
+
   @override
   void initState() {
     super.initState();
@@ -36,11 +47,49 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
     );
     _animationController.forward();
 
+    // On écoute les changements de scroll pour mettre à jour l'offset.
     _scrollController.addListener(() {
       setState(() {
         _scrollOffset = _scrollController.offset;
       });
     });
+
+    // On charge l'état sauvegardé (section et position de scroll).
+    _loadInitialState();
+  }
+
+  /// NOUVELLE FONCTION : Charge l'état (section et scroll) depuis SharedPreferences.
+  Future<void> _loadInitialState() async {
+    final prefs = sl<SharedPreferences>();
+    // Les clés sont uniques pour chaque cours.
+    final sectionId = prefs.getInt(
+      'last_expanded_section_id_${widget.course.id}',
+    );
+    final scrollOffset = prefs.getDouble(
+      'last_scroll_offset_${widget.course.id}',
+    );
+
+    if (mounted) {
+      setState(() {
+        _initiallyExpandedSectionId = sectionId;
+        _initialScrollOffset = scrollOffset;
+      });
+    }
+  }
+
+  /// NOUVELLE FONCTION : Sauvegarde l'état actuel (ID de la section et position du scroll).
+  Future<void> _saveCurrentState(int sectionId) async {
+    final prefs = sl<SharedPreferences>();
+    // On sauvegarde l'ID de la section.
+    await prefs.setInt(
+      'last_expanded_section_id_${widget.course.id}',
+      sectionId,
+    );
+    // On sauvegarde la position actuelle du défilement.
+    await prefs.setDouble(
+      'last_scroll_offset_${widget.course.id}',
+      _scrollController.offset,
+    );
   }
 
   @override
@@ -64,6 +113,7 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
             ? const Color(0xFF0A0A0A)
             : const Color(0xFFF8F9FA),
         body: CustomScrollView(
+          // On associe notre controller au CustomScrollView.
           controller: _scrollController,
           slivers: [
             _buildModernAppBar(context, theme, isDark),
@@ -74,7 +124,7 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
     );
   }
 
-  // L'AppBar reste identique
+  // ... Le code pour _buildModernAppBar reste inchangé ...
   Widget _buildModernAppBar(
     BuildContext context,
     ThemeData theme,
@@ -239,7 +289,6 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
     );
   }
 
-  // La méthode _buildLoadingState reste identique
   Widget _buildLoadingState(ThemeData theme) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.6,
@@ -275,12 +324,40 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
     );
   }
 
-  // La méthode _buildLoadedContent reste identique
+  /// MISE À JOUR : Cette fonction gère maintenant le défilement automatique.
   Widget _buildLoadedContent(
     CourseContentLoaded state,
     ThemeData theme,
     bool isDark,
   ) {
+    // --- LOGIQUE DE DÉFILEMENT AUTOMATIQUE ---
+    // On vérifie s'il y a une position de scroll sauvegardée et si on n'a pas déjà scrollé.
+    if (_initialScrollOffset != null && !_hasAutoScrolled) {
+      // `addPostFrameCallback` exécute le code après que le frame a été dessiné.
+      // C'est crucial pour s'assurer que les éléments de la liste existent avant de scroller.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          // On anime le défilement jusqu'à la position sauvegardée.
+          _scrollController.animateTo(
+            _initialScrollOffset!,
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOut,
+          );
+          // On met le drapeau à `true` pour éviter de scroller à nouveau lors des rebuilds.
+          if (mounted) {
+            setState(() {
+              _hasAutoScrolled = true;
+            });
+          }
+        }
+      });
+    }
+
+    // Si aucune section n'a été mémorisée, on ouvre la première par défaut.
+    if (_initiallyExpandedSectionId == null && state.sections.isNotEmpty) {
+      _initiallyExpandedSectionId = state.sections.first.id;
+    }
+
     return FadeTransition(
       opacity: _fadeAnimation,
       child: Container(
@@ -294,10 +371,8 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
         child: Column(
           children: [
             const SizedBox(height: 24),
-            // Progress Indicator
             _buildProgressIndicator(state, theme),
             const SizedBox(height: 24),
-            // Sections
             ...state.sections.asMap().entries.map((entry) {
               final index = entry.key;
               final section = entry.value;
@@ -316,7 +391,7 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
     );
   }
 
-  // Le widget de progression est maintenant fonctionnel
+  // ... Le code pour _buildProgressIndicator reste inchangé ...
   Widget _buildProgressIndicator(CourseContentLoaded state, ThemeData theme) {
     final totalLessons = state.sections.fold<int>(
       0,
@@ -394,7 +469,7 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
     );
   }
 
-  // La méthode _buildSection reste identique
+  /// MISE À JOUR : La fonction de sauvegarde est maintenant appelée ici.
   Widget _buildSection(
     SectionEntity section,
     int index,
@@ -424,7 +499,27 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
           ),
         ),
         child: ExpansionTile(
-          initiallyExpanded: index == 0,
+          key: ValueKey(section.id),
+          initiallyExpanded: section.id == _initiallyExpandedSectionId,
+          onExpansionChanged: (isExpanded) {
+            // Quand une section est dépliée, on sauvegarde son état.
+            if (isExpanded) {
+              setState(() {
+                _initiallyExpandedSectionId = section.id;
+              });
+              // On attend un court instant pour que le scroll s'ajuste si nécessaire,
+              // puis on sauvegarde la position.
+              Future.delayed(const Duration(milliseconds: 300), () {
+                _saveCurrentState(section.id);
+              });
+            } else {
+              if (_initiallyExpandedSectionId == section.id) {
+                setState(() {
+                  _initiallyExpandedSectionId = null;
+                });
+              }
+            }
+          },
           title: Container(
             padding: const EdgeInsets.all(20),
             child: Row(
@@ -494,8 +589,6 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
                   final lessonIndex = entry.key;
                   final lesson = entry.value;
                   final isLast = lessonIndex == section.lessons.length - 1;
-
-                  // On utilise directement le champ `isCompleted` de la leçon.
                   return _buildLessonTile(
                     lesson,
                     lesson.isCompleted,
@@ -512,7 +605,7 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
     );
   }
 
-  // Le `ListTile` de la leçon affiche maintenant une icône de validation
+  // ... Le reste des fonctions (_buildLessonTile, _buildErrorState, etc.) reste inchangé ...
   Widget _buildLessonTile(
     LessonEntity lesson,
     bool isCompleted,
@@ -543,8 +636,6 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
               '/lesson-viewer/${lesson.id}',
               extra: widget.course.id,
             );
-            // Après le retour de la page de la leçon, on rafraîchit les données
-            // pour mettre à jour la progression.
             if (mounted) {
               final userId = context.read<AuthenticationBloc>().state.user.id;
               context.read<CourseContentBloc>().add(
@@ -609,7 +700,6 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
                     ],
                   ),
                 ),
-                // L'icône de validation est maintenant conditionnelle
                 if (isCompleted)
                   Container(
                     width: 32,
@@ -637,7 +727,6 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
     );
   }
 
-  // La méthode _buildErrorState reste identique
   Widget _buildErrorState(CourseContentError state, ThemeData theme) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.6,
@@ -698,7 +787,6 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
     );
   }
 
-  // La méthode _getIconForLessonType reste identique
   IconData _getIconForLessonType(LessonType type) {
     switch (type) {
       case LessonType.video:
@@ -718,7 +806,6 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
     }
   }
 
-  // La méthode _getColorForLessonType reste identique
   Color _getColorForLessonType(LessonType type, ThemeData theme) {
     switch (type) {
       case LessonType.video:
@@ -738,7 +825,6 @@ class _CoursePlayerPageState extends State<CoursePlayerPage>
     }
   }
 
-  // La méthode _formatDueDate reste identique
   String _formatDueDate(DateTime date) {
     final now = DateTime.now();
     final difference = date.difference(now).inDays;

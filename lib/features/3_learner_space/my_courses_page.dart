@@ -7,8 +7,6 @@ import 'package:modula_lms/features/1_auth/auth_feature.dart';
 import 'package:modula_lms/features/2_marketplace/marketplace_logic.dart';
 import 'package:modula_lms/features/3_learner_space/learner_space_logic.dart';
 
-// La page est un StatelessWidget qui fournit le BLoC.
-// Cela garantit que le BLoC est créé une seule fois et partagé dans toute la vue.
 class MyCoursesPage extends StatelessWidget {
   final bool purchaseSuccess;
 
@@ -23,7 +21,6 @@ class MyCoursesPage extends StatelessWidget {
   }
 }
 
-// La vue interne est un StatefulWidget pour gérer son propre état local, comme l'indicateur de chargement.
 class _MyCoursesView extends StatefulWidget {
   final bool purchaseSuccess;
 
@@ -43,19 +40,15 @@ class _MyCoursesViewState extends State<_MyCoursesView> {
     final userId = authState.user.id;
     final userRole = authState.user.role;
 
-    // On récupère le BLoC depuis le contexte.
     final myCoursesBloc = context.read<MyCoursesBloc>();
 
-    // Si l'utilisateur vient d'acheter un cours, on affiche un message et on rafraîchit la liste après un court délai.
     if (widget.purchaseSuccess) {
       setState(() {
         _isVerifyingPurchase = true;
       });
 
-      // Délai pour simuler la finalisation de l'inscription et laisser le temps au backend de se mettre à jour.
       Future.delayed(const Duration(seconds: 4), () {
         if (mounted) {
-          // On vérifie que le widget est toujours affiché.
           myCoursesBloc.add(FetchMyCourses(userId: userId, role: userRole));
           setState(() {
             _isVerifyingPurchase = false;
@@ -63,7 +56,6 @@ class _MyCoursesViewState extends State<_MyCoursesView> {
         }
       });
     } else {
-      // Si c'est une visite normale, on charge les cours immédiatement.
       myCoursesBloc.add(FetchMyCourses(userId: userId, role: userRole));
     }
   }
@@ -84,18 +76,14 @@ class _MyCoursesViewState extends State<_MyCoursesView> {
           ? _buildVerifyingPurchaseView()
           : BlocBuilder<MyCoursesBloc, MyCoursesState>(
               builder: (context, state) {
-                // État de chargement initial
                 if (state is MyCoursesLoading || state is MyCoursesInitial) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                // État où les cours sont chargés avec succès
                 if (state is MyCoursesLoaded) {
-                  // Si l'utilisateur n'a aucun cours
                   if (state.courses.isEmpty) {
                     return _buildEmptyState();
                   }
-                  // Affichage de la liste des cours
                   return RefreshIndicator(
                     onRefresh: () async {
                       context.read<MyCoursesBloc>().add(
@@ -121,7 +109,6 @@ class _MyCoursesViewState extends State<_MyCoursesView> {
                   );
                 }
 
-                // État d'erreur
                 if (state is MyCoursesError) {
                   return _buildErrorState(state.message);
                 }
@@ -132,7 +119,6 @@ class _MyCoursesViewState extends State<_MyCoursesView> {
     );
   }
 
-  // Widget pour l'état vide (aucun cours)
   Widget _buildEmptyState() {
     return Center(
       child: Padding(
@@ -170,7 +156,6 @@ class _MyCoursesViewState extends State<_MyCoursesView> {
     );
   }
 
-  // Widget pour l'état d'erreur
   Widget _buildErrorState(String message) {
     final authState = context.read<AuthenticationBloc>().state;
     final userId = authState.user.id;
@@ -215,7 +200,6 @@ class _MyCoursesViewState extends State<_MyCoursesView> {
     );
   }
 
-  // Widget pour la vue de vérification de l'achat
   Widget _buildVerifyingPurchaseView() {
     return Center(
       child: Column(
@@ -251,13 +235,17 @@ class _MyCourseCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Calcul de la progression
+    final total = course.totalLessons ?? 0;
+    final completed = course.completedLessons ?? 0;
+    final progress = total > 0 ? completed / total : 0.0;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Container(
-          // Décoration de la carte avec une ombre et des coins arrondis.
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(16),
@@ -271,9 +259,6 @@ class _MyCourseCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              // **CORRECTION APPLIQUÉE ICI**
-              // On enveloppe l'image dans un SizedBox pour lui donner une taille fixe.
-              // Cela résout l'erreur "unbounded constraints" car le Row sait maintenant quelle largeur allouer à l'image.
               SizedBox(
                 width: 120,
                 height: 120,
@@ -284,8 +269,7 @@ class _MyCourseCard extends StatelessWidget {
                   ),
                   child: Image.network(
                     course.imageUrl,
-                    fit: BoxFit.cover, // L'image remplit l'espace alloué.
-                    // Widget affiché pendant le chargement de l'image
+                    fit: BoxFit.cover,
                     loadingBuilder: (context, child, loadingProgress) {
                       if (loadingProgress == null) return child;
                       return Center(
@@ -298,7 +282,6 @@ class _MyCourseCard extends StatelessWidget {
                         ),
                       );
                     },
-                    // Widget affiché en cas d'erreur de chargement de l'image
                     errorBuilder: (_, __, ___) => Container(
                       color: Theme.of(context).colorScheme.surfaceVariant,
                       child: Icon(
@@ -310,10 +293,12 @@ class _MyCourseCard extends StatelessWidget {
                   ),
                 ),
               ),
-              // Informations du cours (Titre, auteur, etc.)
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -322,84 +307,148 @@ class _MyCourseCard extends StatelessWidget {
                         course.title,
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.bold),
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.person_outline,
-                            size: 16,
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              course.author,
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                  ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
+                      const SizedBox(height: 4),
+                      Text(
+                        'Par ${course.author}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primaryContainer,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.play_circle_outline,
-                              size: 16,
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onPrimaryContainer,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Continuer',
-                              style: Theme.of(context).textTheme.labelLarge
-                                  ?.copyWith(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onPrimaryContainer,
-                                  ),
-                            ),
-                          ],
-                        ),
+                      // *** NOUVELLE SECTION DE PROGRESSION ***
+                      _buildProgressionSection(
+                        context,
+                        progress,
+                        completed,
+                        total,
                       ),
+                      const SizedBox(height: 8),
+                      // *** NOUVELLE SECTION DES DEVOIRS/CONTRÔLES EN ATTENTE ***
+                      _buildPendingWorkSection(context),
                     ],
                   ),
-                ),
-              ),
-              // Flèche indicative sur la droite
-              Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Icon(
-                  Icons.arrow_forward_ios,
-                  size: 18,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // Widget pour la barre de progression
+  Widget _buildProgressionSection(
+    BuildContext context,
+    double progress,
+    int completed,
+    int total,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              "Progression",
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            Text(
+              '${(progress * 100).toInt()}%',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 6,
+            backgroundColor: Theme.of(context).primaryColor.withOpacity(0.2),
+            valueColor: AlwaysStoppedAnimation<Color>(
+              Theme.of(context).primaryColor,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Widget pour les indicateurs de travaux en attente
+  Widget _buildPendingWorkSection(BuildContext context) {
+    final pendingAssignments = course.pendingAssignments ?? 0;
+    final pendingEvaluations = course.pendingEvaluations ?? 0;
+
+    // Si aucun travail n'est en attente, on n'affiche rien.
+    if (pendingAssignments == 0 && pendingEvaluations == 0) {
+      return const SizedBox.shrink();
+    }
+
+    return Row(
+      children: [
+        if (pendingAssignments > 0)
+          _StatChip(
+            icon: Icons.assignment_late_outlined,
+            label: '$pendingAssignments devoir(s)',
+            color: Colors.orange.shade700,
+          ),
+        if (pendingAssignments > 0 && pendingEvaluations > 0)
+          const SizedBox(width: 8),
+        if (pendingEvaluations > 0)
+          _StatChip(
+            icon: Icons.assessment_outlined,
+            label: '$pendingEvaluations contrôle(s)',
+            color: Colors.red.shade700,
+          ),
+      ],
+    );
+  }
+}
+
+// Widget pour afficher une petite puce d'information (devoir, contrôle)
+class _StatChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _StatChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w500,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }

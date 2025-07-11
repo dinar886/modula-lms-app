@@ -17,6 +17,11 @@ class CourseEntity extends Equatable {
   final String? category;
   final double? rating;
   final int? enrollmentCount;
+  // NOUVEAUX CHAMPS POUR LA PROGRESSION
+  final int? totalLessons;
+  final int? completedLessons;
+  final int? pendingAssignments;
+  final int? pendingEvaluations;
 
   const CourseEntity({
     required this.id,
@@ -28,6 +33,11 @@ class CourseEntity extends Equatable {
     this.category,
     this.rating,
     this.enrollmentCount,
+    // Ajout des nouveaux champs au constructeur
+    this.totalLessons,
+    this.completedLessons,
+    this.pendingAssignments,
+    this.pendingEvaluations,
   });
 
   CourseEntity copyWith({
@@ -40,6 +50,11 @@ class CourseEntity extends Equatable {
     String? category,
     double? rating,
     int? enrollmentCount,
+    // Ajout des nouveaux champs à la méthode copyWith
+    int? totalLessons,
+    int? completedLessons,
+    int? pendingAssignments,
+    int? pendingEvaluations,
   }) {
     return CourseEntity(
       id: id ?? this.id,
@@ -51,6 +66,11 @@ class CourseEntity extends Equatable {
       category: category ?? this.category,
       rating: rating ?? this.rating,
       enrollmentCount: enrollmentCount ?? this.enrollmentCount,
+      // Assignation des nouvelles valeurs
+      totalLessons: totalLessons ?? this.totalLessons,
+      completedLessons: completedLessons ?? this.completedLessons,
+      pendingAssignments: pendingAssignments ?? this.pendingAssignments,
+      pendingEvaluations: pendingEvaluations ?? this.pendingEvaluations,
     );
   }
 
@@ -67,6 +87,12 @@ class CourseEntity extends Equatable {
           ? (json['rating'] as num).toDouble()
           : null,
       enrollmentCount: json['enrollment_count'] as int?,
+      // On récupère les nouvelles données de progression depuis le JSON.
+      // Elles peuvent être null si l'API ne les renvoie pas (par ex. pour un instructeur).
+      totalLessons: json['total_lessons'] as int?,
+      completedLessons: json['completed_lessons'] as int?,
+      pendingAssignments: json['pending_assignments'] as int?,
+      pendingEvaluations: json['pending_evaluations'] as int?,
     );
   }
 
@@ -81,6 +107,11 @@ class CourseEntity extends Equatable {
     category,
     rating,
     enrollmentCount,
+    // Ajout des nouveaux champs aux props pour la comparaison d'objets.
+    totalLessons,
+    completedLessons,
+    pendingAssignments,
+    pendingEvaluations,
   ];
 }
 
