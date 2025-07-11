@@ -11,7 +11,110 @@ import 'dart:convert';
 // ENTITIES
 //==============================================================================
 
-// --- Les entités précédentes sont inchangées, seule QuizAttemptEntity change ---
+// --- L'entité de la leçon inclut maintenant un champ `isCompleted` ---
+class LessonEntity extends Equatable {
+  final int id;
+  final String title;
+  final LessonType lessonType;
+  final DateTime? dueDate;
+  final List<ContentBlockEntity> contentBlocks;
+  final SubmissionEntity? submission;
+  final Map<String, dynamic> metadata;
+  final bool isCompleted; // CHAMP AJOUTÉ
+
+  const LessonEntity({
+    required this.id,
+    required this.title,
+    required this.lessonType,
+    this.dueDate,
+    this.contentBlocks = const [],
+    this.submission,
+    this.metadata = const {},
+    this.isCompleted = false, // Valeur par défaut
+  });
+
+  // Le reste de l'entité LessonEntity... (le fromJson et copyWith sont modifiés)
+
+  factory LessonEntity.fromJson(Map<String, dynamic> json) {
+    var blocks = <ContentBlockEntity>[];
+    if (json['content_blocks'] != null) {
+      blocks = (json['content_blocks'] as List)
+          .map((blockJson) => ContentBlockEntity.fromJson(blockJson))
+          .toList();
+    }
+
+    final metadataRaw = json['metadata'];
+    Map<String, dynamic> metadataDecoded = {};
+    if (metadataRaw is String && metadataRaw.isNotEmpty) {
+      try {
+        metadataDecoded = jsonDecode(metadataRaw);
+      } catch (e) {
+        print('Erreur décodage JSON pour métadonnées de leçon: $e');
+      }
+    } else if (metadataRaw is Map) {
+      metadataDecoded = Map<String, dynamic>.from(metadataRaw);
+    }
+
+    return LessonEntity(
+      id: json['id'],
+      title: json['title'],
+      lessonType: lessonTypeFromString(json['lesson_type']),
+      dueDate: json['due_date'] != null
+          ? DateTime.parse(json['due_date'])
+          : null,
+      contentBlocks: blocks,
+      submission: json['submission'] != null
+          ? SubmissionEntity.fromJson(json['submission'])
+          : null,
+      metadata: metadataDecoded,
+      // On lit la valeur de 'is_completed' depuis le JSON
+      isCompleted: json['is_completed'] ?? false,
+    );
+  }
+
+  LessonEntity copyWith({
+    int? id,
+    String? title,
+    LessonType? lessonType,
+    DateTime? dueDate,
+    List<ContentBlockEntity>? contentBlocks,
+    SubmissionEntity? submission,
+    Map<String, dynamic>? metadata,
+    bool? isCompleted, // Ajouté au copyWith
+  }) {
+    return LessonEntity(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      lessonType: lessonType ?? this.lessonType,
+      dueDate: dueDate ?? this.dueDate,
+      contentBlocks: contentBlocks ?? this.contentBlocks,
+      submission: submission ?? this.submission,
+      metadata: metadata ?? this.metadata,
+      isCompleted: isCompleted ?? this.isCompleted, // Ajouté ici
+    );
+  }
+
+  static LessonType lessonTypeFromString(String type) {
+    return LessonType.values.firstWhere(
+      (e) => e.name.toLowerCase() == type.toLowerCase(),
+      orElse: () => LessonType.unknown,
+    );
+  }
+
+  @override
+  List<Object?> get props => [
+    id,
+    title,
+    lessonType,
+    dueDate,
+    contentBlocks,
+    submission,
+    metadata,
+    isCompleted, // Ajouté aux props
+  ];
+}
+
+// --- Le reste des entités (SectionEntity, ContentBlockEntity, etc.) sont inchangées ---
 class SectionEntity extends Equatable {
   final int id;
   final String title;
@@ -174,99 +277,6 @@ class SubmissionEntity extends Equatable {
     grade,
     status,
     instructorFeedback,
-  ];
-}
-
-class LessonEntity extends Equatable {
-  final int id;
-  final String title;
-  final LessonType lessonType;
-  final DateTime? dueDate;
-  final List<ContentBlockEntity> contentBlocks;
-  final SubmissionEntity? submission;
-  final Map<String, dynamic> metadata;
-
-  const LessonEntity({
-    required this.id,
-    required this.title,
-    required this.lessonType,
-    this.dueDate,
-    this.contentBlocks = const [],
-    this.submission,
-    this.metadata = const {},
-  });
-
-  factory LessonEntity.fromJson(Map<String, dynamic> json) {
-    var blocks = <ContentBlockEntity>[];
-    if (json['content_blocks'] != null) {
-      blocks = (json['content_blocks'] as List)
-          .map((blockJson) => ContentBlockEntity.fromJson(blockJson))
-          .toList();
-    }
-
-    final metadataRaw = json['metadata'];
-    Map<String, dynamic> metadataDecoded = {};
-    if (metadataRaw is String && metadataRaw.isNotEmpty) {
-      try {
-        metadataDecoded = jsonDecode(metadataRaw);
-      } catch (e) {
-        print('Erreur décodage JSON pour métadonnées de leçon: $e');
-      }
-    } else if (metadataRaw is Map) {
-      metadataDecoded = Map<String, dynamic>.from(metadataRaw);
-    }
-
-    return LessonEntity(
-      id: json['id'],
-      title: json['title'],
-      lessonType: lessonTypeFromString(json['lesson_type']),
-      dueDate: json['due_date'] != null
-          ? DateTime.parse(json['due_date'])
-          : null,
-      contentBlocks: blocks,
-      submission: json['submission'] != null
-          ? SubmissionEntity.fromJson(json['submission'])
-          : null,
-      metadata: metadataDecoded,
-    );
-  }
-
-  LessonEntity copyWith({
-    int? id,
-    String? title,
-    LessonType? lessonType,
-    DateTime? dueDate,
-    List<ContentBlockEntity>? contentBlocks,
-    SubmissionEntity? submission,
-    Map<String, dynamic>? metadata,
-  }) {
-    return LessonEntity(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      lessonType: lessonType ?? this.lessonType,
-      dueDate: dueDate ?? this.dueDate,
-      contentBlocks: contentBlocks ?? this.contentBlocks,
-      submission: submission ?? this.submission,
-      metadata: metadata ?? this.metadata,
-    );
-  }
-
-  static LessonType lessonTypeFromString(String type) {
-    return LessonType.values.firstWhere(
-      (e) => e.name.toLowerCase() == type.toLowerCase(),
-      orElse: () => LessonType.unknown,
-    );
-  }
-
-  @override
-  List<Object?> get props => [
-    id,
-    title,
-    lessonType,
-    dueDate,
-    contentBlocks,
-    submission,
-    metadata,
   ];
 }
 
@@ -486,7 +496,7 @@ class QuizAttemptEntity extends Equatable {
 }
 
 //==============================================================================
-// COURSE CONTENT BLOC (INCHANGÉ)
+// COURSE CONTENT BLOC (MODIFIÉ)
 //==============================================================================
 abstract class CourseContentEvent extends Equatable {
   const CourseContentEvent();
@@ -496,7 +506,20 @@ abstract class CourseContentEvent extends Equatable {
 
 class FetchCourseContent extends CourseContentEvent {
   final String courseId;
-  const FetchCourseContent(this.courseId);
+  final String userId; // On a besoin de l'ID de l'utilisateur
+  const FetchCourseContent({required this.courseId, required this.userId});
+}
+
+// Nouvel événement pour marquer une leçon comme terminée
+class MarkLessonAsCompleted extends CourseContentEvent {
+  final int lessonId;
+  final int courseId;
+  final String userId;
+  const MarkLessonAsCompleted({
+    required this.lessonId,
+    required this.courseId,
+    required this.userId,
+  });
 }
 
 abstract class CourseContentState extends Equatable {
@@ -524,6 +547,7 @@ class CourseContentBloc extends Bloc<CourseContentEvent, CourseContentState> {
 
   CourseContentBloc({required this.apiClient}) : super(CourseContentInitial()) {
     on<FetchCourseContent>(_onFetchCourseContent);
+    on<MarkLessonAsCompleted>(_onMarkLessonAsCompleted);
   }
 
   Future<void> _onFetchCourseContent(
@@ -532,9 +556,10 @@ class CourseContentBloc extends Bloc<CourseContentEvent, CourseContentState> {
   ) async {
     emit(CourseContentLoading());
     try {
+      // On passe maintenant l'ID de l'utilisateur à l'API.
       final response = await apiClient.get(
         '/api/v1/get_course_content.php',
-        queryParameters: {'course_id': event.courseId},
+        queryParameters: {'course_id': event.courseId, 'user_id': event.userId},
       );
 
       final List<SectionEntity> sections = (response.data as List).map((
@@ -560,6 +585,47 @@ class CourseContentBloc extends Bloc<CourseContentEvent, CourseContentState> {
           "Erreur lors de la récupération du contenu du cours : ${e.toString()}",
         ),
       );
+    }
+  }
+
+  // Gestionnaire pour le nouvel événement
+  Future<void> _onMarkLessonAsCompleted(
+    MarkLessonAsCompleted event,
+    Emitter<CourseContentState> emit,
+  ) async {
+    try {
+      // Appel optimiste : on met à jour l'état local avant la réponse de l'API
+      if (state is CourseContentLoaded) {
+        final currentState = state as CourseContentLoaded;
+        final updatedSections = currentState.sections.map((section) {
+          return SectionEntity(
+            id: section.id,
+            title: section.title,
+            lessons: section.lessons.map((lesson) {
+              if (lesson.id == event.lessonId) {
+                return lesson.copyWith(isCompleted: true);
+              }
+              return lesson;
+            }).toList(),
+          );
+        }).toList();
+        emit(CourseContentLoaded(updatedSections));
+      }
+
+      // Appel à la nouvelle API pour sauvegarder l'état.
+      await apiClient.post(
+        '/api/v1/mark_lesson_completed.php',
+        data: {
+          'user_id': event.userId,
+          'lesson_id': event.lessonId,
+          'course_id': event.courseId,
+        },
+      );
+      // Pas besoin de recharger toutes les données, la mise à jour optimiste a déjà fait le travail visuel.
+    } catch (e) {
+      // En cas d'erreur, on pourrait vouloir annuler la mise à jour optimiste,
+      // mais pour la simplicité, on ne fait rien pour l'instant.
+      print("Erreur lors de la complétion de la leçon: $e");
     }
   }
 }

@@ -4,8 +4,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
+import 'package:modula_lms/features/1_auth/auth_feature.dart'; // IMPORT AJOUTÉ pour l'ID utilisateur
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
-
 import 'package:modula_lms/features/2_marketplace/marketplace_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/instructor_space_logic.dart';
 
@@ -28,12 +28,17 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
 
   @override
   Widget build(BuildContext context) {
+    // On récupère l'ID de l'utilisateur connecté une seule fois ici.
+    final String userId = context.read<AuthenticationBloc>().state.user.id;
+
     return MultiBlocProvider(
       providers: [
         BlocProvider(
-          create: (context) =>
-              sl<CourseContentBloc>()
-                ..add(FetchCourseContent(_currentCourse.id)),
+          create: (context) => sl<CourseContentBloc>()
+            // CORRECTION : On utilise les paramètres nommés 'courseId' et 'userId'.
+            ..add(
+              FetchCourseContent(courseId: _currentCourse.id, userId: userId),
+            ),
         ),
         BlocProvider(create: (context) => sl<CourseEditorBloc>()),
       ],
@@ -42,9 +47,12 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
           return BlocListener<CourseEditorBloc, CourseEditorState>(
             listener: (context, state) {
               if (state is CourseEditorSuccess) {
-                // Rafraîchit le contenu du cours après une opération réussie
+                // CORRECTION : On utilise les paramètres nommés pour rafraîchir.
                 context.read<CourseContentBloc>().add(
-                  FetchCourseContent(_currentCourse.id),
+                  FetchCourseContent(
+                    courseId: _currentCourse.id,
+                    userId: userId,
+                  ),
                 );
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
@@ -81,8 +89,12 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                         setState(() {
                           _currentCourse = updatedCourse;
                         });
+                        // CORRECTION : On utilise les paramètres nommés pour rafraîchir.
                         context.read<CourseContentBloc>().add(
-                          FetchCourseContent(_currentCourse.id),
+                          FetchCourseContent(
+                            courseId: _currentCourse.id,
+                            userId: userId,
+                          ),
                         );
                       }
                     },
@@ -136,7 +148,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                                     },
                                   );
                                 } else if (value == 'add_content') {
-                                  // NOUVELLE LOGIQUE : Ouvre le menu d'ajout
+                                  // Ouvre le menu d'ajout de contenu
                                   _showAddContentMenu(
                                     context,
                                     section.id,
@@ -180,6 +192,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                                       )
                                     : null,
                                 onTap: () {
+                                  // Navigue vers l'éditeur de la leçon
                                   context.push(
                                     '/lesson-editor/${lesson.id}/section/${section.id}',
                                   );
@@ -194,6 +207,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                                         context.read<CourseEditorBloc>(),
                                       );
                                     } else if (value == 'preview') {
+                                      // Navigue vers l'aperçu élève de la leçon
                                       context.push(
                                         '/lesson-viewer/${lesson.id}',
                                         extra: _currentCourse.id,
@@ -267,7 +281,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
-  // NOUVELLE FONCTION : Affiche le menu pour choisir quoi ajouter
+  // Affiche le menu pour choisir quel type de contenu ajouter.
   void _showAddContentMenu(
     BuildContext context,
     int sectionId,
@@ -306,7 +320,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
-  // MISE A JOUR : Le dialogue gère maintenant le type et la date d'échéance
+  // Dialogue pour ajouter une leçon/devoir/contrôle. Gère le titre et la date.
   void _showAddLessonDialog(
     BuildContext context,
     int sectionId,
@@ -315,7 +329,8 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
   ) {
     final titleController = TextEditingController();
     DateTime? dueDate;
-    final isAssignment = lessonType == 'devoir';
+    final bool isAssignment =
+        lessonType == 'devoir' || lessonType == 'evaluation';
 
     String dialogTitle;
     switch (lessonType) {
@@ -332,7 +347,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
 
     showDialog(
       context: context,
-      // On utilise un StatefulWidget pour le dialogue afin de gérer l'état de la date
+      // On utilise un StatefulWidget pour le dialogue afin de gérer l'état de la date.
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
@@ -345,7 +360,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                   decoration: const InputDecoration(labelText: 'Titre'),
                   autofocus: true,
                 ),
-                // Affiche le sélecteur de date uniquement pour les devoirs
+                // Affiche le sélecteur de date pour les devoirs et contrôles.
                 if (isAssignment)
                   Padding(
                     padding: const EdgeInsets.only(top: 20.0),
@@ -359,7 +374,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                       onTap: () async {
                         final pickedDate = await showDatePicker(
                           context: context,
-                          initialDate: DateTime.now(),
+                          initialDate: dueDate ?? DateTime.now(),
                           firstDate: DateTime.now(),
                           lastDate: DateTime.now().add(
                             const Duration(days: 365),
@@ -368,7 +383,9 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                         if (pickedDate != null) {
                           final pickedTime = await showTimePicker(
                             context: context,
-                            initialTime: TimeOfDay.fromDateTime(DateTime.now()),
+                            initialTime: TimeOfDay.fromDateTime(
+                              dueDate ?? DateTime.now(),
+                            ),
                           );
                           if (pickedTime != null) {
                             setDialogState(() {
@@ -399,9 +416,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                       // Affiche une erreur si la date est requise mais non définie
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text(
-                            'Veuillez définir une date de rendu pour le devoir.',
-                          ),
+                          content: Text('Veuillez définir une date de rendu.'),
                           backgroundColor: Colors.red,
                         ),
                       );
@@ -412,7 +427,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                         title: titleController.text,
                         sectionId: sectionId,
                         lessonType: lessonType,
-                        // On envoie la date au format ISO 8601
+                        // On envoie la date au format ISO 8601 si elle existe.
                         dueDate: dueDate?.toIso8601String(),
                       ),
                     );
@@ -428,8 +443,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
-  // --- Fonctions de dialogue (inchangées) ---
-
+  // Dialogue pour ajouter une nouvelle section.
   void _showAddSectionDialog(
     BuildContext context,
     String courseId,
@@ -466,6 +480,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
+  // Dialogue pour modifier le titre d'une section.
   void _showEditSectionDialog(
     BuildContext context,
     int sectionId,
@@ -506,6 +521,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
+  // Dialogue pour modifier le nom d'une leçon.
   void _showEditLessonDialog(
     BuildContext context,
     int lessonId,
@@ -546,6 +562,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
+  // Dialogue générique de confirmation pour les suppressions.
   void _showDeleteConfirmationDialog(
     BuildContext context,
     String title,
@@ -574,6 +591,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     );
   }
 
+  // Retourne l'icône appropriée pour chaque type de leçon.
   IconData _getIconForLessonType(LessonType type) {
     switch (type) {
       case LessonType.video:

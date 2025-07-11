@@ -23,6 +23,30 @@ class LessonViewerPage extends StatelessWidget {
     required this.courseId,
   });
 
+  // NOUVELLE MÉTHODE pour marquer la leçon comme terminée
+  void _markLessonAsViewed(BuildContext context) {
+    final lessonDetailState = context.read<LessonDetailBloc>().state;
+    if (lessonDetailState is LessonDetailLoaded) {
+      final lesson = lessonDetailState.lesson;
+      // On ne marque comme "vu" que si ce n'est pas un devoir et si ce n'est pas déjà fait.
+      final isCompletableByView =
+          lesson.lessonType != LessonType.devoir &&
+          lesson.lessonType != LessonType.evaluation;
+      if (isCompletableByView && !lesson.isCompleted) {
+        final userId = context.read<AuthenticationBloc>().state.user.id;
+        // On utilise le CourseContentBloc, qui est accessible via le service locator
+        // ou pourrait être passé en paramètre si nécessaire. Pour l'instant, c'est la solution la plus simple.
+        sl<CourseContentBloc>().add(
+          MarkLessonAsCompleted(
+            lessonId: lessonId,
+            courseId: int.parse(courseId),
+            userId: userId,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final studentId = context.read<AuthenticationBloc>().state.user.id;
@@ -35,6 +59,10 @@ class LessonViewerPage extends StatelessWidget {
       child: Scaffold(
         body: BlocConsumer<LessonDetailBloc, LessonDetailState>(
           listener: (context, state) {
+            // Une fois la leçon chargée, on vérifie si on doit la marquer comme vue.
+            if (state is LessonDetailLoaded) {
+              _markLessonAsViewed(context);
+            }
             if (state is LessonDetailSubmitSuccess) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -364,7 +392,7 @@ class AssignmentViewWidget extends StatelessWidget {
   }
 }
 
-// Le reste des widgets (SubmissionPlaceholder, Image, Text, Video) reste inchangé
+// Le reste du fichier (widgets d'affichage des blocs) est identique au précédent.
 class SubmissionPlaceholderWidget extends StatelessWidget {
   const SubmissionPlaceholderWidget({super.key});
 
