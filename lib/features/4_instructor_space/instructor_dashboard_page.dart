@@ -3,93 +3,113 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:modula_lms/core/api/api_client.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/1_auth/auth_feature.dart';
+import 'package:modula_lms/features/2_marketplace/marketplace_logic.dart';
+import 'package:modula_lms/features/3_learner_space/learner_space_logic.dart';
 import 'package:modula_lms/features/4_instructor_space/instructor_dashboard_logic.dart';
+import 'package:modula_lms/features/5_messaging/messaging_logic.dart';
 
 class InstructorDashboardPage extends StatelessWidget {
   const InstructorDashboardPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Récupère l'ID de l'instructeur depuis le BLoC d'authentification.
+    // On récupère l'ID de l'instructeur une seule fois ici.
     final instructorId = context.read<AuthenticationBloc>().state.user.id;
 
-    // Utilise BlocProvider pour injecter le BLoC de cette page dans l'arbre des widgets.
-    // Le BLoC est créé ici et l'événement pour charger les données est déclenché immédiatement.
-    return BlocProvider(
-      create: (context) =>
-          sl<InstructorDashboardBloc>()
-            ..add(FetchInstructorStats(instructorId)),
-      child: Scaffold(
-        backgroundColor:
-            Colors.grey[50], // Un fond légèrement gris pour un look plus doux
-        appBar: AppBar(
-          title: const Text('Tableau de Bord'),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black87,
-          elevation: 1,
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.person_outline),
-              tooltip: 'Mon Profil',
-              onPressed: () => context.push('/profile'),
-            ),
-          ],
+    // On utilise MultiBlocProvider pour injecter les BLoCs nécessaires
+    // à l'arbre de widgets qui suit.
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(
+          create: (context) =>
+              sl<InstructorDashboardBloc>()
+                ..add(FetchInstructorStats(instructorId)),
         ),
-        body: RefreshIndicator(
-          // Permet de rafraîchir les données en tirant l'écran vers le bas.
-          onRefresh: () async {
-            context.read<InstructorDashboardBloc>().add(
-              FetchInstructorStats(instructorId),
-            );
-          },
-          child: ListView(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 24.0,
+        BlocProvider(
+          create: (context) => sl<MyCoursesBloc>()
+            ..add(
+              FetchMyCourses(userId: instructorId, role: UserRole.instructor),
             ),
-            children: [
-              // Titre de la section des statistiques.
-              Text(
-                "Aperçu de votre activité",
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Section des statistiques clés.
-              _buildStatsSection(),
-              const SizedBox(height: 32),
-              // Titre de la section des actions rapides.
-              Text(
-                "Accès Rapide",
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 16),
-              _buildActionsGrid(context),
-            ],
+        ),
+      ],
+      // Le widget _InstructorDashboardView est maintenant un enfant du MultiBlocProvider.
+      // Tout contexte à l'intérieur de ce widget aura accès aux BLoCs.
+      child: const _InstructorDashboardView(),
+    );
+  }
+}
+
+/// Un widget privé qui contient toute la logique d'affichage.
+/// Il est séparé pour garantir que son contexte est bien un descendant du MultiBlocProvider.
+class _InstructorDashboardView extends StatelessWidget {
+  const _InstructorDashboardView();
+
+  @override
+  Widget build(BuildContext context) {
+    // On récupère l'ID de l'instructeur depuis le contexte qui a maintenant accès au AuthBloc.
+    final instructorId = context.read<AuthenticationBloc>().state.user.id;
+
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        title: const Text('Tableau de Bord'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        elevation: 1,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person_outline),
+            tooltip: 'Mon Profil',
+            onPressed: () => context.push('/profile'),
           ),
+        ],
+      ),
+      body: RefreshIndicator(
+        // Le contexte ici est valide pour accéder aux BLoCs.
+        onRefresh: () async {
+          context.read<InstructorDashboardBloc>().add(
+            FetchInstructorStats(instructorId),
+          );
+        },
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+          children: [
+            Text(
+              "Aperçu de votre activité",
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildStatsSection(),
+            const SizedBox(height: 32),
+            Text(
+              "Accès Rapide",
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 16),
+            // On passe le contexte valide à la méthode.
+            _buildActionsGrid(context),
+          ],
         ),
       ),
     );
   }
 
-  /// Construit la section qui affiche les statistiques sous forme de grille.
+  /// Construit la section qui affiche les statistiques.
   Widget _buildStatsSection() {
-    // BlocBuilder écoute les changements d'état du InstructorDashboardBloc
-    // et reconstruit l'interface en conséquence.
     return BlocBuilder<InstructorDashboardBloc, InstructorDashboardState>(
       builder: (context, state) {
-        // Affiche un indicateur de chargement pendant la récupération des données.
         if (state is InstructorDashboardLoading) {
           return const Center(child: CircularProgressIndicator());
         }
-        // Affiche un message d'erreur si la récupération échoue.
         if (state is InstructorDashboardError) {
           return Center(
             child: Text(
@@ -99,23 +119,20 @@ class InstructorDashboardPage extends StatelessWidget {
             ),
           );
         }
-        // Affiche les cartes de statistiques une fois les données chargées.
         if (state is InstructorDashboardLoaded) {
           final stats = state.stats;
-          // Formatteur pour afficher les montants en euros.
           final currencyFormatter = NumberFormat.currency(
             locale: 'fr_FR',
             symbol: '€',
           );
 
           return GridView.count(
-            crossAxisCount: 2, // Affiche 2 cartes par ligne
+            crossAxisCount: 2,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
-            childAspectRatio:
-                1.5, // Ratio largeur/hauteur pour donner plus d'espace
+            childAspectRatio: 1.5,
             children: [
               _StatCard(
                 label: 'Revenus (7j)',
@@ -138,11 +155,9 @@ class InstructorDashboardPage extends StatelessWidget {
                 color1: Colors.orange.shade300,
                 color2: Colors.orange.shade500,
               ),
-              // Vous pouvez ajouter une autre carte ici si nécessaire.
-              // Par exemple, une carte pour les nouveaux messages.
               _StatCard(
                 label: 'Nouveaux Messages',
-                value: "12", // Valeur factice
+                value: "12",
                 icon: Icons.mail_rounded,
                 color1: Colors.purple.shade300,
                 color2: Colors.purple.shade500,
@@ -150,7 +165,6 @@ class InstructorDashboardPage extends StatelessWidget {
             ],
           );
         }
-        // Par défaut, retourne un conteneur vide.
         return const SizedBox.shrink();
       },
     );
@@ -164,7 +178,7 @@ class InstructorDashboardPage extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       crossAxisSpacing: 16.0,
       mainAxisSpacing: 16.0,
-      childAspectRatio: 1.2, // Ajusté pour un meilleur équilibre visuel
+      childAspectRatio: 1.2,
       children: [
         _ActionCard(
           icon: Icons.school_outlined,
@@ -182,16 +196,119 @@ class InstructorDashboardPage extends StatelessWidget {
           onTap: () => context.push('/students'),
         ),
         _ActionCard(
-          icon: Icons.add_circle_outline,
-          label: 'Créer un Cours',
-          onTap: () => context.push('/create-course'),
+          icon: Icons.campaign_outlined,
+          label: 'Faire une annonce',
+          // Le contexte passé ici est maintenant correct.
+          onTap: () => _showSelectCourseDialog(context),
         ),
       ],
     );
   }
+
+  /// Affiche une boîte de dialogue pour sélectionner un cours.
+  void _showSelectCourseDialog(BuildContext pageContext) {
+    showDialog(
+      context: pageContext,
+      builder: (dialogContext) {
+        // La clé de la correction est ici : on fournit l'instance de MyCoursesBloc
+        // obtenue depuis le `pageContext` (qui est valide) à l'arbre de la dialog.
+        return BlocProvider.value(
+          value: BlocProvider.of<MyCoursesBloc>(pageContext),
+          child: BlocBuilder<MyCoursesBloc, MyCoursesState>(
+            builder: (builderContext, state) {
+              if (state is MyCoursesLoading) {
+                return const AlertDialog(
+                  content: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (state is MyCoursesLoaded) {
+                return AlertDialog(
+                  title: const Text('Choisir un cours'),
+                  content: SizedBox(
+                    width: double.maxFinite,
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: state.courses.length,
+                      itemBuilder: (_, index) {
+                        final course = state.courses[index];
+                        return ListTile(
+                          title: Text(course.title),
+                          onTap: () {
+                            Navigator.of(dialogContext).pop();
+                            _createOrGetGroupChat(pageContext, course);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text('Annuler'),
+                    ),
+                  ],
+                );
+              }
+              return AlertDialog(
+                title: const Text('Erreur'),
+                content: const Text(
+                  'Impossible de charger la liste de vos cours.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Fermer'),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  /// Appelle le backend pour créer/récupérer le chat de groupe et y naviguer.
+  Future<void> _createOrGetGroupChat(
+    BuildContext context,
+    CourseEntity course,
+  ) async {
+    final apiClient = sl<ApiClient>();
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ouverture de la discussion de groupe...'),
+        ),
+      );
+
+      final response = await apiClient.post(
+        '/api/v1/create_or_get_group_chat.php',
+        data: {'course_id': course.id},
+      );
+      final conversationId = response.data['conversation_id'];
+
+      final conversation = ConversationEntity(
+        id: conversationId,
+        conversationName: course.title,
+        conversationImageUrl: course.imageUrl,
+        type: 'group',
+        lastMessage: '',
+        lastMessageAt: null,
+      );
+
+      context.push('/chat/$conversationId', extra: conversation);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur: Impossible d'accéder à la conversation."),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 }
 
-/// Widget pour une carte de statistique, maintenant avec un design amélioré.
+/// Widget pour une carte de statistique.
 class _StatCard extends StatelessWidget {
   final String label;
   final String value;
@@ -227,8 +344,6 @@ class _StatCard extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.all(12.0),
-        // LayoutBuilder permet de rendre les widgets enfants responsifs
-        // à la taille du parent, ce qui résout le problème de l'overflow.
         child: LayoutBuilder(
           builder: (context, constraints) {
             return Column(
@@ -241,7 +356,6 @@ class _StatCard extends StatelessWidget {
                   color: Colors.white,
                 ),
                 const Spacer(),
-                // Le texte de la valeur s'adapte pour ne pas déborder.
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Text(
@@ -254,7 +368,6 @@ class _StatCard extends StatelessWidget {
                     maxLines: 1,
                   ),
                 ),
-                // Le label a une taille de police plus petite.
                 Text(
                   label,
                   style: TextStyle(
@@ -272,7 +385,7 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-/// Widget pour une carte d'action rapide avec un design modernisé.
+/// Widget pour une carte d'action rapide.
 class _ActionCard extends StatelessWidget {
   final IconData icon;
   final String label;

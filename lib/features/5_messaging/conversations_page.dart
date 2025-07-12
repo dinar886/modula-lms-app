@@ -16,54 +16,93 @@ class ConversationsPage extends StatelessWidget {
     return BlocProvider(
       create: (context) =>
           sl<ConversationsBloc>()..add(FetchConversations(userId)),
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Messagerie'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.person_outline),
-              tooltip: 'Mon Profil',
-              onPressed: () => context.push('/profile'),
+      child: DefaultTabController(
+        length: 2, // Deux onglets : Messages et Groupes
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Messagerie'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.person_outline),
+                tooltip: 'Mon Profil',
+                onPressed: () => context.push('/profile'),
+              ),
+            ],
+            // La TabBar pour les onglets
+            bottom: const TabBar(
+              tabs: [
+                Tab(icon: Icon(Icons.person), text: 'Messages'),
+                Tab(icon: Icon(Icons.group), text: 'Groupes'),
+              ],
             ),
-          ],
-        ),
-        body: BlocBuilder<ConversationsBloc, ConversationsState>(
-          builder: (context, state) {
-            if (state is ConversationsLoading) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (state is ConversationsError) {
-              return Center(child: Text(state.message));
-            }
-            if (state is ConversationsLoaded) {
-              if (state.conversations.isEmpty) {
-                return const Center(
-                  child: Text("Vous n'avez aucune conversation."),
-                );
-              }
-              return RefreshIndicator(
-                onRefresh: () async {
-                  context.read<ConversationsBloc>().add(
-                    FetchConversations(userId),
-                  );
-                },
-                child: ListView.builder(
-                  itemCount: state.conversations.length,
-                  itemBuilder: (context, index) {
-                    final conversation = state.conversations[index];
-                    return ConversationTile(conversation: conversation);
-                  },
-                ),
-              );
-            }
-            return const SizedBox.shrink();
-          },
+          ),
+          // Le corps contient la vue des onglets
+          body: TabBarView(
+            children: [
+              // Contenu pour l'onglet "Messages" (individuels)
+              _ConversationListView(type: 'individual', userId: userId),
+              // Contenu pour l'onglet "Groupes"
+              _ConversationListView(type: 'group', userId: userId),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
+/// Widget interne pour afficher la liste des conversations filtrée par type.
+class _ConversationListView extends StatelessWidget {
+  final String type;
+  final String userId;
+
+  const _ConversationListView({required this.type, required this.userId});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<ConversationsBloc, ConversationsState>(
+      builder: (context, state) {
+        if (state is ConversationsLoading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (state is ConversationsError) {
+          return Center(child: Text(state.message));
+        }
+        if (state is ConversationsLoaded) {
+          // On filtre les conversations en fonction du type de l'onglet
+          final filteredConversations = state.conversations
+              .where((c) => c.type == type)
+              .toList();
+
+          if (filteredConversations.isEmpty) {
+            return Center(
+              child: Text(
+                type == 'group'
+                    ? "Vous n'êtes dans aucun groupe de discussion."
+                    : "Vous n'avez aucune conversation.",
+              ),
+            );
+          }
+          return RefreshIndicator(
+            onRefresh: () async {
+              context.read<ConversationsBloc>().add(FetchConversations(userId));
+            },
+            child: ListView.builder(
+              itemCount: filteredConversations.length,
+              itemBuilder: (context, index) {
+                final conversation = filteredConversations[index];
+                return ConversationTile(conversation: conversation);
+              },
+            ),
+          );
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
+}
+
+/// Widget pour une seule ligne de conversation (tuile).
 class ConversationTile extends StatelessWidget {
   final ConversationEntity conversation;
 
