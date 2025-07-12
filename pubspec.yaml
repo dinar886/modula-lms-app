@@ -37,6 +37,8 @@ dependencies:
   flutter_stripe: ^11.5.0
   firebase_core: ^3.15.1
   firebase_messaging: ^15.2.9
+  flutter_chat_ui: ^1.6.15
+  flutter_chat_types: ^3.6.2
 
 dev_dependencies:
   flutter_test:

@@ -36,6 +36,13 @@ class _LearnerDashboardPageState extends State<LearnerDashboardPage> {
           title: const Text('Tableau de Bord'),
           backgroundColor: Colors.grey[50],
           elevation: 0,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.person_outline),
+              tooltip: 'Mon Profil',
+              onPressed: () => context.push('/profile'),
+            ),
+          ],
         ),
         backgroundColor: Colors.grey[50],
         // Le corps de la page utilise un BlocBuilder pour réagir aux états.

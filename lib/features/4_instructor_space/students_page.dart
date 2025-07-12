@@ -3,9 +3,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:modula_lms/core/api/api_client.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
 import 'package:modula_lms/features/1_auth/auth_feature.dart';
 import 'package:modula_lms/features/4_instructor_space/students_logic.dart';
+import 'package:modula_lms/features/5_messaging/messaging_logic.dart';
 
 class StudentsPage extends StatefulWidget {
   const StudentsPage({super.key});
@@ -15,14 +17,9 @@ class StudentsPage extends StatefulWidget {
 }
 
 class _StudentsPageState extends State<StudentsPage> {
-  // Garde en mémoire l'état (ouvert/fermé) de chaque panneau de cours.
   List<bool> _isPanelOpen = [];
 
-  // **NOUVELLE FONCTION** : Génère une couleur déterministe pour un étudiant.
-  /// Prend l'ID de l'étudiant, utilise son `hashCode` pour choisir une couleur
-  /// dans une liste prédéfinie. Ainsi, un même étudiant aura toujours la même couleur.
   Color _getColorForStudent(String studentId) {
-    // Une liste de couleurs vives et agréables.
     const List<Color> avatarColors = [
       Colors.blue,
       Colors.red,
@@ -35,14 +32,46 @@ class _StudentsPageState extends State<StudentsPage> {
       Colors.indigo,
       Colors.cyan,
     ];
-    // L'opérateur modulo (%) garantit que l'index reste dans les limites de la liste.
     final int colorIndex = studentId.hashCode % avatarColors.length;
     return avatarColors[colorIndex];
   }
 
+  // NOUVELLE FONCTION : Pour démarrer un chat
+  void _startChatWithStudent(
+    BuildContext context,
+    StudentEntity student,
+  ) async {
+    final instructorId = context.read<AuthenticationBloc>().state.user.id;
+    final apiClient = sl<ApiClient>(); // On récupère l'ApiClient
+
+    try {
+      final response = await apiClient.post(
+        '/api/v1/create_or_get_individual_chat.php',
+        data: {'user1_id': instructorId, 'user2_id': student.id},
+      );
+      final conversationId = response.data['conversation_id'];
+
+      // Créer une entité conversation pour la passer à la page de chat
+      final conversation = ConversationEntity(
+        id: conversationId,
+        conversationName: student.name,
+        conversationImageUrl: student.profileImageUrl,
+        type: 'individual',
+        lastMessage: '',
+        lastMessageAt: DateTime.now(),
+      );
+
+      // On navigue vers la page de chat
+      context.push('/chat/$conversationId', extra: conversation);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur au démarrage du chat: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // On récupère l'ID de l'instructeur actuellement connecté.
     final instructorId = context.read<AuthenticationBloc>().state.user.id;
 
     return BlocProvider(
@@ -50,15 +79,23 @@ class _StudentsPageState extends State<StudentsPage> {
           sl<InstructorStudentsBloc>()
             ..add(FetchInstructorStudents(instructorId)),
       child: Scaffold(
-        appBar: AppBar(title: const Text('Gestion des Élèves')),
+        appBar: AppBar(
+          title: const Text('Gestion des Élèves'),
+          // On ajoute un bouton pour accéder à son propre profil
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.person_outline),
+              tooltip: 'Mon Profil',
+              onPressed: () => context.push('/profile'),
+            ),
+          ],
+        ),
         body: BlocBuilder<InstructorStudentsBloc, InstructorStudentsState>(
           builder: (context, state) {
-            // Affichage d'un indicateur de chargement.
             if (state is InstructorStudentsLoading ||
                 state is InstructorStudentsInitial) {
               return const Center(child: CircularProgressIndicator());
             }
-            // Affichage d'un message d'erreur.
             if (state is InstructorStudentsError) {
               return Center(
                 child: Padding(
@@ -71,16 +108,13 @@ class _StudentsPageState extends State<StudentsPage> {
                 ),
               );
             }
-            // Affichage de la liste des cours et étudiants.
             if (state is InstructorStudentsLoaded) {
-              // On s'assure que notre liste `_isPanelOpen` a la bonne taille.
               if (_isPanelOpen.length != state.coursesWithStudents.length) {
                 _isPanelOpen = List.generate(
                   state.coursesWithStudents.length,
                   (_) => false,
                 );
               }
-              // Si l'instructeur n'a aucun élève.
               if (state.coursesWithStudents.isEmpty) {
                 return const Center(
                   child: Padding(
@@ -93,7 +127,6 @@ class _StudentsPageState extends State<StudentsPage> {
                   ),
                 );
               }
-              // On affiche la liste des cours sous forme de panneaux dépliants.
               return SingleChildScrollView(
                 padding: const EdgeInsets.all(8.0),
                 child: ExpansionPanelList(
@@ -127,24 +160,18 @@ class _StudentsPageState extends State<StudentsPage> {
                           ),
                         );
                       },
-                      // Le corps du panneau contient la liste des étudiants.
                       body: Column(
                         children: courseWithStudents.students.map((student) {
-                          // **MODIFICATION DU LISTTILE DE L'ÉTUDIANT**
                           final hasImage =
                               student.profileImageUrl != null &&
                               student.profileImageUrl!.isNotEmpty;
 
                           return ListTile(
                             leading: CircleAvatar(
-                              // On utilise la fonction pour obtenir une couleur de fond unique.
                               backgroundColor: _getColorForStudent(student.id),
-                              // Si une image existe, on l'affiche avec NetworkImage.
-                              // Sinon, `backgroundImage` est `null`.
                               backgroundImage: hasImage
                                   ? NetworkImage(student.profileImageUrl!)
                                   : null,
-                              // Le `child` (l'initiale) ne s'affiche que si `backgroundImage` est `null`.
                               child: !hasImage
                                   ? Text(
                                       student.name
@@ -155,12 +182,18 @@ class _StudentsPageState extends State<StudentsPage> {
                                         fontWeight: FontWeight.bold,
                                       ),
                                     )
-                                  : null, // Si on a une image, le child est null.
+                                  : null,
                             ),
                             title: Text(student.name),
                             subtitle: Text(student.email),
+                            // --- NOUVEAU BOUTON DE MESSAGERIE ---
+                            trailing: IconButton(
+                              icon: const Icon(Icons.message_outlined),
+                              onPressed: () =>
+                                  _startChatWithStudent(context, student),
+                              tooltip: 'Envoyer un message',
+                            ),
                             onTap: () {
-                              // Navigue vers la page de détails de l'élève.
                               context.push('/students/${student.id}');
                             },
                           );
@@ -171,7 +204,6 @@ class _StudentsPageState extends State<StudentsPage> {
                 ),
               );
             }
-            // Cas par défaut (ne devrait pas être atteint).
             return const SizedBox.shrink();
           },
         ),

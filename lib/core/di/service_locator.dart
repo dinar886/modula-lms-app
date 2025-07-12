@@ -15,6 +15,8 @@ import 'package:modula_lms/features/4_instructor_space/submissions_logic.dart';
 import 'package:modula_lms/features/course_player/course_player_logic.dart';
 import 'package:modula_lms/features/shared/stripe_logic.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+// NOUVEAUX IMPORTS POUR LA MESSAGERIE
+import 'package:modula_lms/features/5_messaging/messaging_logic.dart';
 
 // `sl` (Service Locator) est une instance globale de GetIt.
 final sl = GetIt.instance;
@@ -94,4 +96,8 @@ Future<void> setupLocator() async {
   // --- STRIPE ---
   // BLoC pour la gestion des paiements avec Stripe.
   sl.registerFactory(() => StripeBloc(apiClient: sl()));
+
+  // --- MESSAGING (NOUVEAU) ---
+  sl.registerFactory(() => ConversationsBloc(apiClient: sl()));
+  sl.registerFactory(() => ChatBloc(apiClient: sl()));
 }

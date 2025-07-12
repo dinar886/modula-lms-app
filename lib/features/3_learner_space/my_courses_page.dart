@@ -71,6 +71,13 @@ class _MyCoursesViewState extends State<_MyCoursesView> {
         title: const Text('Mes Cours'),
         backgroundColor: Theme.of(context).colorScheme.surface,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person_outline),
+            tooltip: 'Mon Profil',
+            onPressed: () => context.push('/profile'),
+          ),
+        ],
       ),
       body: _isVerifyingPurchase
           ? _buildVerifyingPurchaseView()

@@ -13,28 +13,28 @@ class ScaffoldWithNavBar extends StatelessWidget {
   /// Calcule l'index de navigation actuel à partir de la route.
   int _calculateSelectedIndex(BuildContext context) {
     final String location = GoRouterState.of(context).uri.toString();
-    // On récupère le rôle de l'utilisateur pour ajuster la logique.
     final userRole = context.read<AuthenticationBloc>().state.user.role;
 
+    // --- MISE À JOUR DE LA LOGIQUE D'INDEXATION ---
     if (location.startsWith('/marketplace')) return 0;
-    // Si l'utilisateur est un élève :
+
     if (userRole == UserRole.learner) {
       if (location.startsWith('/my-courses')) return 1;
       if (location.startsWith('/dashboard')) return 2;
-      if (location.startsWith('/profile')) return 3;
+      if (location.startsWith('/messaging')) return 3; // Nouvel onglet
     } else {
-      // Si l'utilisateur est un instructeur :
+      // Instructor
       if (location.startsWith('/dashboard')) return 1;
-      if (location.startsWith('/profile')) return 2;
+      if (location.startsWith('/messaging')) return 2; // Nouvel onglet
     }
-    return 0; // Par défaut, on retourne sur le catalogue.
+    return 0; // Par défaut sur le catalogue
   }
 
   /// Gère la navigation lors du clic sur un onglet.
   void _onItemTapped(int index, BuildContext context) {
     final userRole = context.read<AuthenticationBloc>().state.user.role;
 
-    // Logique de navigation pour un élève
+    // --- MISE À JOUR DE LA LOGIQUE DE NAVIGATION ---
     if (userRole == UserRole.learner) {
       switch (index) {
         case 0:
@@ -47,11 +47,11 @@ class ScaffoldWithNavBar extends StatelessWidget {
           context.go('/dashboard');
           break;
         case 3:
-          context.go('/profile');
+          context.go('/messaging'); // Navigation vers la messagerie
           break;
       }
     } else {
-      // Logique de navigation pour un instructeur
+      // Instructor
       switch (index) {
         case 0:
           context.go('/marketplace');
@@ -60,7 +60,7 @@ class ScaffoldWithNavBar extends StatelessWidget {
           context.go('/dashboard');
           break;
         case 2:
-          context.go('/profile');
+          context.go('/messaging'); // Navigation vers la messagerie
           break;
       }
     }
@@ -68,17 +68,15 @@ class ScaffoldWithNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // On récupère le rôle pour construire la liste des onglets.
     final userRole = context.watch<AuthenticationBloc>().state.user.role;
 
-    // On définit la liste des onglets qui seront affichés.
+    // --- MISE À JOUR DES ÉLÉMENTS DE LA BARRE DE NAVIGATION ---
     final List<BottomNavigationBarItem> items = [
       const BottomNavigationBarItem(
         icon: Icon(Icons.store_outlined),
         label: 'Catalogue',
         activeIcon: Icon(Icons.store),
       ),
-      // On ajoute l'onglet "Mes Cours" seulement si l'utilisateur est un élève.
       if (userRole == UserRole.learner)
         const BottomNavigationBarItem(
           icon: Icon(Icons.video_library_outlined),
@@ -90,10 +88,11 @@ class ScaffoldWithNavBar extends StatelessWidget {
         label: 'Tableau de bord',
         activeIcon: Icon(Icons.dashboard),
       ),
+      // Remplacement de "Profil" par "Messagerie"
       const BottomNavigationBarItem(
-        icon: Icon(Icons.person_outline),
-        label: 'Profil',
-        activeIcon: Icon(Icons.person),
+        icon: Icon(Icons.chat_bubble_outline),
+        label: 'Messages',
+        activeIcon: Icon(Icons.chat_bubble),
       ),
     ];
 
@@ -103,7 +102,6 @@ class ScaffoldWithNavBar extends StatelessWidget {
         items: items,
         currentIndex: _calculateSelectedIndex(context),
         onTap: (index) => _onItemTapped(index, context),
-        // Style pour la barre de navigation
         type: BottomNavigationBarType.fixed,
         selectedItemColor: Theme.of(context).primaryColor,
         unselectedItemColor: Colors.grey,

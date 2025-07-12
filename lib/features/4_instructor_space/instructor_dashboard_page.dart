@@ -29,6 +29,13 @@ class InstructorDashboardPage extends StatelessWidget {
           backgroundColor: Colors.white,
           foregroundColor: Colors.black87,
           elevation: 1,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.person_outline),
+              tooltip: 'Mon Profil',
+              onPressed: () => context.push('/profile'),
+            ),
+          ],
         ),
         body: RefreshIndicator(
           // Permet de rafraîchir les données en tirant l'écran vers le bas.

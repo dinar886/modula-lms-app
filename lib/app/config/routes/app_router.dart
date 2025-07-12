@@ -12,9 +12,8 @@ import 'package:modula_lms/features/2_marketplace/marketplace_logic.dart';
 import 'package:modula_lms/features/2_marketplace/marketplace_page.dart';
 import 'package:modula_lms/features/3_learner_space/my_courses_page.dart';
 import 'package:modula_lms/features/3_learner_space/my_submissions_page.dart';
-// NOUVEAUX IMPORTS
 import 'package:modula_lms/features/3_learner_space/my_corrections_page.dart';
-import 'package:modula_lms/features/3_learner_space/my_evaluations_page.dart'; // Nouvelle page
+import 'package:modula_lms/features/3_learner_space/my_evaluations_page.dart';
 import 'package:modula_lms/features/3_learner_space/graded_submission_viewer_page.dart';
 import 'package:modula_lms/features/4_instructor_space/grading_page.dart';
 import 'package:modula_lms/features/4_instructor_space/course_editor_page.dart';
@@ -26,12 +25,16 @@ import 'package:modula_lms/features/4_instructor_space/quiz_editor_page.dart';
 import 'package:modula_lms/features/4_instructor_space/student_details_page.dart';
 import 'package:modula_lms/features/4_instructor_space/students_page.dart';
 import 'package:modula_lms/features/4_instructor_space/submissions_page.dart';
+import 'package:modula_lms/features/5_messaging/messaging_logic.dart';
 import 'package:modula_lms/features/course_player/course_player_page.dart';
 import 'package:modula_lms/features/course_player/lesson_viewer_page.dart';
 import 'package:modula_lms/features/course_player/quiz_page.dart';
 import 'package:modula_lms/features/dashboard/presentation/pages/dashboard_page.dart';
 import 'package:modula_lms/features/shared/profile_page.dart';
 import 'package:modula_lms/features/shared/pdf_viewer_page.dart';
+// NOUVEAUX IMPORTS POUR LA MESSAGERIE
+import 'package:modula_lms/features/5_messaging/conversations_page.dart';
+import 'package:modula_lms/features/5_messaging/chat_page.dart';
 
 class AppRouter {
   static GoRouter buildRouter(BuildContext context) {
@@ -60,10 +63,8 @@ class AppRouter {
             GoRoute(
               path: '/my-courses',
               builder: (context, state) {
-                // CORRECTION : On lit le paramètre `purchase_success` de l'URL.
                 final purchaseSuccess =
                     state.uri.queryParameters['purchase_success'] == 'true';
-                // On passe ce paramètre à la page.
                 return MyCoursesPage(purchaseSuccess: purchaseSuccess);
               },
             ),
@@ -71,9 +72,15 @@ class AppRouter {
               path: '/dashboard',
               builder: (context, state) => const DashboardPage(),
             ),
+            // La route /profile existe toujours mais n'est plus dans la barre de nav
             GoRoute(
               path: '/profile',
               builder: (context, state) => const ProfilePage(),
+            ),
+            // --- NOUVELLES ROUTES DE MESSAGERIE ---
+            GoRoute(
+              path: '/messaging',
+              builder: (context, state) => const ConversationsPage(),
             ),
             GoRoute(
               path: '/my-submissions',
@@ -83,12 +90,25 @@ class AppRouter {
               path: '/my-corrections',
               builder: (context, state) => const MyCorrectionsPage(),
             ),
-            // NOUVELLE ROUTE POUR LES ÉVALUATIONS
             GoRoute(
               path: '/my-evaluations',
               builder: (context, state) => const MyEvaluationsPage(),
             ),
           ],
+        ),
+        // --- NOUVELLE ROUTE POUR LE CHAT ---
+        GoRoute(
+          path: '/chat/:id',
+          builder: (context, state) {
+            final conversationId = int.parse(state.pathParameters['id']!);
+            final conversation =
+                state.extra
+                    as ConversationEntity?; // Passer l'entité pour le titre
+            return ChatPage(
+              conversationId: conversationId,
+              conversation: conversation,
+            );
+          },
         ),
         GoRoute(
           path: '/course-player',
@@ -208,9 +228,11 @@ class AppRouter {
           '/my-courses',
           '/dashboard',
           '/profile',
+          '/messaging', // Route protégée
+          '/chat', // Route protégée
           '/my-submissions',
           '/my-corrections',
-          '/my-evaluations', // Route protégée
+          '/my-evaluations',
           '/course-player',
           '/lesson-viewer',
           '/pdf-viewer',
@@ -233,7 +255,8 @@ class AppRouter {
         }
 
         if (loggedIn && isAccessingAuthPages) {
-          return '/profile';
+          // Redirige vers la messagerie au lieu du profil après connexion
+          return '/messaging';
         }
 
         return null;
