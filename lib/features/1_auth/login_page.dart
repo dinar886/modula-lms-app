@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
-import 'package:modula_lms/features/1_auth/auth_feature.dart'; // NOUVEL IMPORT
+import 'package:modula_lms/features/1_auth/auth_feature.dart';
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
@@ -36,9 +36,10 @@ class _LoginFormState extends State<LoginForm> {
   Widget build(BuildContext context) {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
+        // Le listener est maintenant beaucoup plus simple.
         if (state is AuthSuccess) {
-          // La redirection est gérée par le `refreshListenable` du GoRouter
-          // après que l'AuthenticationBloc a mis à jour l'état global.
+          // La redirection est gérée automatiquement par GoRouter.
+          // La mise à jour du token est gérée par le listener dans main.dart.
         }
         if (state is AuthFailure) {
           ScaffoldMessenger.of(context).showSnackBar(

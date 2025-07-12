@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:modula_lms/core/di/service_locator.dart';
-import 'package:modula_lms/features/1_auth/auth_feature.dart'; // NOUVEL IMPORT
+import 'package:modula_lms/features/1_auth/auth_feature.dart';
 
 class RegisterPage extends StatelessWidget {
   const RegisterPage({super.key});
@@ -38,16 +38,8 @@ class _RegisterFormState extends State<RegisterForm> {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthSuccess) {
-          // On affiche une confirmation et on redirige vers la page de connexion.
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Inscription réussie ! Vous pouvez vous connecter.',
-              ),
-              backgroundColor: Colors.green,
-            ),
-          );
-          context.go('/login');
+          // Comme pour le login, la redirection et la mise à jour du token
+          // sont maintenant gérées de manière centralisée.
         }
         if (state is AuthFailure) {
           ScaffoldMessenger.of(context).showSnackBar(

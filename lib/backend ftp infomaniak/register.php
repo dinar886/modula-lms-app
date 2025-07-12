@@ -24,6 +24,8 @@ if (
         echo json_encode(["message" => "Erreur de connexion à la base de données."]);
         exit();
     }
+    
+    $conn->set_charset("utf8mb4");
 
     // Sécurise les données reçues.
     $name = $conn->real_escape_string($data->name);
@@ -58,8 +60,26 @@ if (
 
     // Exécute la requête.
     if ($stmt->execute()) {
+        // --- MODIFICATION PRINCIPALE ---
+        // Récupère l'ID du nouvel utilisateur inséré.
+        $user_id = $stmt->insert_id;
+
+        // Prépare une nouvelle requête pour récupérer toutes les infos du nouvel utilisateur.
+        $select_sql = "SELECT id, name, email, role, profile_image_url FROM users WHERE id = ?";
+        $stmt_select = $conn->prepare($select_sql);
+        $stmt_select->bind_param("i", $user_id);
+        $stmt_select->execute();
+        $result = $stmt_select->get_result();
+        $new_user = $result->fetch_assoc();
+
+        // Renvoie une réponse de succès avec les données de l'utilisateur.
         http_response_code(201); // Created
-        echo json_encode(["message" => "Compte créé avec succès."]);
+        echo json_encode([
+            "message" => "Compte créé avec succès.",
+            "user" => $new_user // Le nouvel objet utilisateur est inclus ici.
+        ]);
+        $stmt_select->close();
+
     } else {
         http_response_code(500);
         echo json_encode(["message" => "Erreur lors de la création du compte."]);

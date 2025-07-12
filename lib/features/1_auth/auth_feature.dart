@@ -1,12 +1,14 @@
 // lib/features/1_auth/auth_feature.dart
 import 'dart:async';
 import 'package:equatable/equatable.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:modula_lms/core/api/api_client.dart';
+import 'package:modula_lms/core/di/service_locator.dart';
 
-// --- ENTITÉS ET ÉNUMÉRATIONS ---
+// --- ENTITÉS ET ÉNUMÉRATIONS (inchangé) ---
 
 /// Énumération pour les rôles des utilisateurs afin d'éviter les erreurs de frappe.
 enum UserRole { learner, instructor, unknown }
@@ -126,6 +128,33 @@ class AuthenticationRepository {
     }
   }
 
+  /// **NOUVELLE FONCTION CENTRALISÉE**
+  /// Met à jour le token FCM de l'utilisateur sur le serveur.
+  Future<void> updateFcmToken(String userId) async {
+    if (userId.isEmpty) return;
+
+    try {
+      // 1. Demander la permission (important pour iOS).
+      FirebaseMessaging messaging = FirebaseMessaging.instance;
+      await messaging.requestPermission();
+
+      // 2. Récupérer le token.
+      final fcmToken = await messaging.getToken();
+
+      if (fcmToken != null) {
+        // 3. Envoyer le token au backend.
+        await apiClient.post(
+          '/api/v1/update_fcm_token.php',
+          data: {'user_id': userId, 'fcm_token': fcmToken},
+        );
+        print("Token FCM mis à jour pour l'utilisateur $userId.");
+      }
+    } catch (e) {
+      // On affiche l'erreur en console sans bloquer l'application.
+      print("Erreur lors de la mise à jour du token FCM : $e");
+    }
+  }
+
   /// Appelle l'API pour connecter l'utilisateur.
   Future<void> logIn({required String email, required String password}) async {
     try {
@@ -145,6 +174,8 @@ class AuthenticationRepository {
         profileImageUrl: userData['profile_image_url'],
       );
       await _saveUser(user);
+      // On met à jour le token FCM juste après avoir sauvegardé l'utilisateur.
+      await updateFcmToken(user.id);
       _controller.add(user);
     } catch (e) {
       print(e);
@@ -152,7 +183,6 @@ class AuthenticationRepository {
     }
   }
 
-  /// **MÉTHODE `updateUser` CORRIGÉE**
   /// Met à jour les informations de l'utilisateur, y compris la photo de profil.
   Future<void> updateUser({
     required String userId,
@@ -161,9 +191,6 @@ class AuthenticationRepository {
     XFile? imageFile,
   }) async {
     try {
-      // **CORRECTION APPLIQUÉE ICI**
-      // On utilise maintenant le paramètre `file` et on spécifie `fileKey`.
-      // La clé 'profile_image' doit correspondre à ce que le script `update_profile.php` attend.
       final response = await apiClient.postMultipart(
         path: '/api/v1/update_profile.php',
         data: {'user_id': userId, 'name': name, 'email': email},
@@ -192,16 +219,32 @@ class AuthenticationRepository {
   }
 
   /// Appelle l'API pour inscrire un nouvel utilisateur.
-  Future<void> register({
+  Future<User> register({
     required String name,
     required String email,
     required String password,
   }) async {
     try {
-      await apiClient.post(
+      final response = await apiClient.post(
         '/api/v1/register.php',
         data: {'name': name, 'email': email, 'password': password},
       );
+      final userData = response.data['user'];
+      final role = userData['role'] == 'instructor'
+          ? UserRole.instructor
+          : UserRole.learner;
+      final user = User(
+        id: userData['id'].toString(),
+        name: userData['name'],
+        email: userData['email'],
+        role: role,
+        profileImageUrl: userData['profile_image_url'],
+      );
+      await _saveUser(user);
+      // On met à jour le token FCM juste après l'inscription.
+      await updateFcmToken(user.id);
+      _controller.add(user);
+      return user;
     } catch (e) {
       print(e);
       throw Exception('Impossible de créer le compte.');
@@ -337,7 +380,7 @@ class ProfileUpdateRequested extends AuthEvent {
 abstract class AuthState extends Equatable {
   const AuthState();
   @override
-  List<Object> get props => [];
+  List<Object?> get props => [];
 }
 
 class AuthInitial extends AuthState {}
@@ -346,7 +389,12 @@ class AuthLoading extends AuthState {}
 
 class AuthSuccess extends AuthState {
   final String? message;
-  const AuthSuccess({this.message});
+  final User? user;
+
+  const AuthSuccess({this.message, this.user});
+
+  @override
+  List<Object?> get props => [message, user];
 }
 
 class AuthFailure extends AuthState {
@@ -390,12 +438,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     emit(AuthLoading());
     try {
-      await _authenticationRepository.register(
+      final user = await _authenticationRepository.register(
         name: event.name,
         email: event.email,
         password: event.password,
       );
-      emit(const AuthSuccess(message: "Inscription réussie !"));
+      emit(AuthSuccess(message: "Inscription réussie !", user: user));
     } catch (e) {
       emit(AuthFailure(e.toString()));
     }
@@ -407,8 +455,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     emit(AuthLoading());
     try {
-      // **CORRECTION APPLIQUÉE ICI**
-      // On passe le paramètre `file` et non `imageFile`.
       await _authenticationRepository.updateUser(
         userId: event.userId,
         name: event.name,

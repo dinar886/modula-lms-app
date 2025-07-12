@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "976934090206",
+    "project_id": "modula-lms",
+    "storage_bucket": "modula-lms.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:976934090206:android:a1c93b2d9fcf6666e9d94f",
+        "android_client_info": {
+          "package_name": "com.example.modula_lms"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB7vUjr21ZfZ9qKmbzUAC4u8BDokQVkLrc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

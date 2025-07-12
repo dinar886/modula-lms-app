@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Hôte : vd9wgs.myd.infomaniak.com
--- Généré le :  mar. 08 juil. 2025 à 07:29
+-- Généré le :  sam. 12 juil. 2025 à 16:11
 -- Version du serveur :  10.6.18-MariaDB-deb11-log
 -- Version de PHP :  7.4.33
 
@@ -35,6 +35,7 @@ CREATE TABLE `users` (
   `profile_image_url` varchar(255) DEFAULT NULL COMMENT 'URL vers l''image de profil de l''utilisateur',
   `password` varchar(255) NOT NULL,
   `role` enum('learner','instructor') NOT NULL DEFAULT 'learner',
+  `fcm_token` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
@@ -42,11 +43,13 @@ CREATE TABLE `users` (
 -- Déchargement des données de la table `users`
 --
 
-INSERT INTO `users` (`id`, `name`, `email`, `profile_image_url`, `password`, `role`, `created_at`) VALUES
-(1, 'Nardihg', 'nardih1234@gmail.com', 'https://modula-lms.com/uploads/profile_images/user_1_1751819450.jpg', '$2y$10$m4sEMRDA02muYcWz3YreC.eInleiIbW8pccEleT.1STj5DwqokNNG', 'instructor', '2025-07-02 13:00:35'),
-(2, 'wesh', 'a@gmail.com', NULL, '$2y$10$oLamVYYCKlKqyerNZVBsO.70ceI3825mmswmjaWRNQwntcmda44.S', 'learner', '2025-07-02 13:13:21'),
-(3, 'a', 'ab@gmail.com', 'https://modula-lms.com/uploads/profile_images/user_3_1751919166.jpg', '$2y$10$u6g0PZR2kp9FgXWVvPWdEumxPVH9JmNj/WSPrSxupwkWZzlGqj.Zq', 'instructor', '2025-07-06 13:10:33'),
-(4, 'b', 'b@gmail.com', NULL, '$2y$10$8O6PTYRfaCtG62E9xxKZ2OZ8D3KsjMsGCDkqilpZ1DcodFgYdQdPi', 'learner', '2025-07-07 20:47:55');
+INSERT INTO `users` (`id`, `name`, `email`, `profile_image_url`, `password`, `role`, `fcm_token`, `created_at`) VALUES
+(1, 'Nardihg', 'nardih1234@gmail.com', 'https://modula-lms.com/uploads/profile_images/user_1_1751819450.jpg', '$2y$10$m4sEMRDA02muYcWz3YreC.eInleiIbW8pccEleT.1STj5DwqokNNG', 'instructor', NULL, '2025-07-02 13:00:35'),
+(2, 'wesh', 'a@gmail.com', NULL, '$2y$10$oLamVYYCKlKqyerNZVBsO.70ceI3825mmswmjaWRNQwntcmda44.S', 'learner', NULL, '2025-07-02 13:13:21'),
+(3, 'a', 'ab@gmail.com', 'https://modula-lms.com/uploads/profile_images/user_3_1751919166.jpg', '$2y$10$u6g0PZR2kp9FgXWVvPWdEumxPVH9JmNj/WSPrSxupwkWZzlGqj.Zq', 'instructor', NULL, '2025-07-06 13:10:33'),
+(4, 'b', 'b@gmail.com', 'https://modula-lms.com/uploads/profile_images/user_4_1752081118.jpg', '$2y$10$8O6PTYRfaCtG62E9xxKZ2OZ8D3KsjMsGCDkqilpZ1DcodFgYdQdPi', 'learner', NULL, '2025-07-07 20:47:55'),
+(5, 'c', 'c@gmail.com', NULL, '$2y$10$28j2iXRysO4ehjNghYHfxeouZcqSCh3JYqCTxrnjijKBmZkKz238.', 'learner', NULL, '2025-07-12 13:52:36'),
+(6, 'd', 'd@gmail.com', NULL, '$2y$10$aYJIXH3avISah6WBKbJNnuo7GydwwFhNS7zPbaVAwrVVnOYwz8.62', 'learner', 'dDtTM_SeU0FniDNFi7xk-J:APA91bH98K7jv7VFKYal3_FrYGkW-Qtu-Us8d9DiUXIs1hP-nKLpXK0bSypa1-BRnrGwPnOGiaw_hBeb-monPBj7pXFKaSS_4vTM6-zdVrLWfoA0JNGKZVs', '2025-07-12 14:10:08');
 
 --
 -- Index pour les tables déchargées
@@ -67,7 +70,7 @@ ALTER TABLE `users`
 -- AUTO_INCREMENT pour la table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

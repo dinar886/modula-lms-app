@@ -32,6 +32,10 @@
 	<string>Allow "Modula LMS" to track your activity across other companies' apps and websites? Don't worry! It will avoid irrelevant ads and keep the app free!</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
